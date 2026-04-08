@@ -12,8 +12,9 @@ export interface User {
   id: string;
   name: string;
   isTeacher: boolean;
-  isCounsellor?: boolean;
-  usertype?: string;
+  isCounsellor?: boolean | undefined;
+  usertype?: string | undefined;
+  visitorId?: number | undefined;
 }
 
 export interface Participant {
@@ -21,6 +22,7 @@ export interface Participant {
   socketId: string;
   mediaState: { audio: boolean; video: boolean };
   pointer: { x: number; y: number; tool?: string } | null;
+  joinedAt: number;
 }
 
 // ─── Excalidraw ───────────────────────────────────────────────

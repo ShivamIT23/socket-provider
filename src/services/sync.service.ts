@@ -16,7 +16,10 @@ export async function saveRoomStateToBackend(roomId: string) {
   try {
     const res = await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/internal/save-state`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "x-internal-secret": CFG.INTERNAL_SECRET
+      },
       body: JSON.stringify({
         sessionId: roomId,
         boardState: {

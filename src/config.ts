@@ -3,9 +3,12 @@
  * Centralized config from environment variables.
  */
 
+import dotenv from "dotenv";
+dotenv.config();
+
 export const CFG = {
   PORT:                    Number(process.env.PORT) || 5001,
-  MAIN_BACKEND_URL:        process.env.MAIN_BACKEND_URL        || "http://localhost:5000",
+  MAIN_BACKEND_URL:        process.env.MAIN_BACKEND_URL        || "http://localhost:5002",
   LIVEKIT_API_KEY:         process.env.LIVEKIT_API_KEY         || "",
   LIVEKIT_API_SECRET:      process.env.LIVEKIT_API_SECRET      || "",
   LIVEKIT_WS_URL:          process.env.LIVEKIT_WS_URL          || "",
@@ -18,6 +21,7 @@ export const CFG = {
   ROOM_STALE_MS:           24 * 60 * 60 * 1000,
   SYNC_INTERVAL_MS:        30 * 1000,
   GC_INTERVAL_MS:          60 * 60 * 1000,
+  INTERNAL_SECRET:         process.env.INTERNAL_SECRET || "",
 };
 
 export const log = {

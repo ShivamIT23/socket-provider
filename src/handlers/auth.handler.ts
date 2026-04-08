@@ -22,22 +22,25 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
   const room = rooms.get(roomId);
   if (!room) return;
   const all = Array.from(room.participants.values());
-  const sockets = await io.in(roomId).fetchSockets() as unknown as CustomSocket[];
-  for (const s of sockets) {
-    const isStaff = s.user?.isTeacher || s.user?.isCounsellor;
-    s.emit("room_users", {
-      roomId,
-      payload: {
-        count: all.length,
-        hasTeacher: !!room.ownerUserId,
-        users: isStaff ? all.map(p => ({
-          user_id: p.user.id, username: p.user.name,
-          isMuted: room.mutedUserIds.has(p.user.id),
-          mediaState: p.mediaState,
-        })) : [],
-      },
-    });
-  }
+  log.info(`Broadcasting users for room ${roomId}: Count = ${all.length}`);
+
+  const data = {
+    roomId,
+    payload: {
+      count: all.length,
+      hasTeacher: !!room.ownerUserId,
+      users: all.map(p => ({
+        user_id: p.user.id,
+        username: p.user.name,
+        socket_id: p.socketId,
+        isMuted: room.mutedUserIds.has(p.user.id),
+        mediaState: p.mediaState,
+      })),
+    },
+  };
+
+  io.to(roomId).emit("room_users", data);
+  return data;
 }
 
 // Re-export for other handlers that need it
@@ -59,17 +62,26 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
       const token = cookies.token ?? cookies.accessToken ?? payload?.token;
       const resp = await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/verify`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-secret": CFG.INTERNAL_SECRET
+        },
         body: JSON.stringify({ sessionId: roomId, token }),
       });
       if (resp.ok) {
-        const data: any = await resp.json();
-        if (data?.data?.valid) {
-          const u = data.data.user;
+        const u: any = await resp.json();
+        // The API returns the user object directly now
+        if (u && u.id) {
+          const currentVisitorId = socket.user?.visitorId;
           socket.user = {
-            id: u.id, name: u.name, isTeacher: u.isTeacher,
-            isCounsellor: u.isCounsellor, usertype: u.usertype,
+            id: u.id, 
+            name: u.name || socket.user?.name || "Verified User", 
+            isTeacher: u.role === 'teacher' || u.isTeacher,
+            isCounsellor: u.isCounsellor, 
+            usertype: u.usertype,
+            visitorId: currentVisitorId, // Always preserve the visitorId from frontend
           };
+          log.info(`Verified user: ${socket.user?.name} (visitorId: ${socket.user?.visitorId})`);
         }
       }
     } catch (e: any) {
@@ -78,6 +90,30 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
     socket.userId = socket.user!.id;
     const room = ensureRoom(roomId);
+
+    // ── DUPLICATE / RECONNECTION CHECK ────────────────────────
+    // Check if this USER ID already has an active session in the room
+    const existing = Array.from(room.participants.values()).find(p => p.user.id === socket.userId);
+    const nameDuplicate = Array.from(room.participants.values()).find(p => 
+      p.user.name.toLowerCase() === socket.user!.name.toLowerCase() && p.user.id !== socket.userId
+    );
+
+    if (nameDuplicate) {
+      log.warn(`Join rejected: Name conflict for ${socket.user!.name}`);
+      socket.emit("error", { message: "Someone else is already using this name in the room." });
+      socket.disconnect();
+      return;
+    }
+
+    // Optional: Log duplicate user presence (not rejection)
+    if (existing) {
+      log.info(`Multiple sessions for user ${socket.user!.name} (${socket.userId})`);
+    }
+    // ──────────────────────────────────────────────────────────
+
+    // Update DB presence (isActive = 1) is already done at StudentGate, 
+    // but we ensure it here if desired. 
+    // For now we trust verifyStudent/StudentGate.
 
     // Cancel cleanup timer
     if (room.cleanupTimer) { clearTimeout(room.cleanupTimer); room.cleanupTimer = null; }
@@ -90,6 +126,16 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
       room.teacherSocketId = socket.id;
       room.ownerUserId = socket.user!.id;
       if (room.duration && !room.timerStarted) startRoomTimer(roomId, io);
+
+      // Update Teacher Presence in DB
+      fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/${roomId}/presence`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-secret": CFG.INTERNAL_SECRET
+        },
+        body: JSON.stringify({ present: true, role: 'teacher' }),
+      }).catch(e => log.error("Teacher presence update failed:", e.message));
     }
 
     // Counsellor setup
@@ -97,17 +143,33 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
     // Join the Socket.IO room
     socket.join(roomId);
-    room.participants.set(socket.user!.id, {
+    room.participants.set(socket.id, {
       user: socket.user!, socketId: socket.id,
       mediaState: { audio: false, video: false }, pointer: null,
+      joinedAt: Date.now(),
     });
+
+    // ── DB PRESENCE UPDATE (isActive = 1) ─────────────────────
+    if (socket.user?.visitorId) {
+      fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitor/presence`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-secret": CFG.INTERNAL_SECRET
+        },
+        body: JSON.stringify({ visitorId: socket.user.visitorId, isActive: true }),
+      }).catch(e => log.error("Presence join update failed:", e.message));
+    }
+    // ──────────────────────────────────────────────────────────
     socket.chatRate = { count: 0, lastReset: Date.now() };
 
-    log.info(`Join: ${socket.user!.name} teacher=${socket.user!.isTeacher} room=${roomId}`);
+    log.info(`Join: ${socket.user!.name} | Role: ${socket.user!.isTeacher ? 'Teacher' : 'Student'} | VisitorID: ${socket.user?.visitorId} | Room: ${roomId}`);
 
-    // Notify others
+    // Notify others AND send direct state to this newcomer to avoid race conditions
     socket.to(roomId).emit("user_join", { roomId, payload: { user: socket.user } });
-    await broadcastRoomUsers(roomId, io);
+    const usersData = await broadcastRoomUsers(roomId, io);
+    socket.emit("room_users", usersData); // Targeted send to ensure newcomer sees correct count
+
 
     // ── Full room state for newcomer ──────────────────────────
     socket.emit("page_state", {
@@ -147,14 +209,51 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
   // ── Disconnect ──────────────────────────────────────────────
   socket.on("disconnect", async (reason) => {
-    log.info(`Disconnected: ${socket.id} (${reason})`);
-    if (!socket.roomId || !socket.userId) return;
+    log.info(`Disconnected: ${socket.id} (room: ${socket.roomId}, user: ${socket.userId}, reason: ${reason})`);
+    if (!socket.roomId || !socket.userId) {
+      log.warn(`Missing roomId or userId on disconnect for socket ${socket.id}`);
+      return;
+    }
     const room = rooms.get(socket.roomId);
-    if (!room) return;
+    if (!room) {
+      log.warn(`Room ${socket.roomId} not found on disconnect for socket ${socket.id}`);
+      return;
+    }
 
-    room.participants.delete(socket.userId);
-    if (room.teacherSocketId === socket.id) room.teacherSocketId = null;
+    log.info(`Removing participant ${socket.id} from room ${socket.roomId}. Previous count: ${room.participants.size}`);
+    room.participants.delete(socket.id);
+    if (room.teacherSocketId === socket.id) {
+       room.teacherSocketId = null;
+       // Update Teacher Presence in DB (set to absent)
+       fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/${socket.roomId}/presence`, {
+         method: "POST",
+         headers: { 
+           "Content-Type": "application/json",
+           "x-internal-secret": CFG.INTERNAL_SECRET
+         },
+         body: JSON.stringify({ present: false, role: 'teacher' }),
+       }).catch(e => log.error("Teacher presence cleanup failed:", e.message));
+    }
     if (room.counsellorSocketId === socket.id) room.counsellorSocketId = null;
+
+    // ── DB PRESENCE UPDATE (isActive = 0) ─────────────────────
+    if (socket.user?.visitorId) {
+      log.info(`Updating DB presence for visitorId: ${socket.user.visitorId}`);
+      fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitor/presence`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-secret": CFG.INTERNAL_SECRET
+        },
+        body: JSON.stringify({ visitorId: socket.user.visitorId, isActive: false }),
+      }).then(res => {
+        if (!res.ok) log.error(`Presence update failed for visitor ${socket.user?.visitorId}: Status ${res.status}`);
+        else log.info(`Presence update success for visitor ${socket.user?.visitorId}`);
+      }).catch(e => log.error("Presence sync failed:", e.message));
+    } else {
+      log.warn(`No visitorId found for disconnecting user: ${socket.user?.name}`);
+    }
+    // ──────────────────────────────────────────────────────────
 
     socket.to(socket.roomId).emit("user_leave", {
       roomId: socket.roomId,
