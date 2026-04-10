@@ -33,10 +33,13 @@ export function ensureRoom(roomId: string): Room {
       participants: new Map(),
       chat: [],
       mutedUserIds: new Set(),
+      textDisabledUserIds: new Set(),
+      attachmentsDisabledUserIds: new Set(),
       isLocked: false,
       isFrozen: false,
       settings: {
         chatEnabled: true,
+        attachmentsEnabled: true,
         drawingEnabled: true,
         videoEnabled: true,
         screenShareLimit: 4,
@@ -44,7 +47,12 @@ export function ensureRoom(roomId: string): Room {
       isViewportSynced: false, isViewportLocked: false, lastViewport: null,
       duration: null, startTime: null, timerStarted: false, timerInterval: null,
       lastActivity: Date.now(), cleanupTimer: null, isDirty: false,
+      lastChatSyncTime: Date.now(),
+      chatCountSinceLastSync: 0,
     });
+
+    // No longer loading historical chats into memory here
+    // History is now fetched directly by the client using server actions
   }
   const room = rooms.get(roomId)!;
   room.lastActivity = Date.now();

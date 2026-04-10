@@ -34,6 +34,8 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
         username: p.user.name,
         socket_id: p.socketId,
         isMuted: room.mutedUserIds.has(p.user.id),
+        textEnabled: !room.textDisabledUserIds.has(p.user.id),
+        attachmentsEnabled: !room.attachmentsDisabledUserIds.has(p.user.id),
         mediaState: p.mediaState,
       })),
     },
@@ -178,9 +180,11 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     });
     socket.emit("snapshot", { roomId, payload: pageSnapshot(getPage(room, room.currentPageId)) });
 
-    // Chat state
-    if (room.chat.length) socket.emit("chat_history", { roomId, payload: room.chat });
-    socket.emit("chat_state", { roomId, payload: { enabled: room.settings.chatEnabled } });
+    // Chat state & local history (cached in RAM)
+    socket.emit("chat_state", { roomId, payload: { settings: room.settings } });
+    if (room.chat.length > 0) {
+      socket.emit("chat_history", { roomId, payload: room.chat });
+    }
     if (room.mutedUserIds.has(socket.userId!))
       socket.emit("user_muted_status", { roomId, payload: { isMuted: true } });
 

@@ -30,6 +30,25 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     // Guard: chat disabled
     if (!room.settings.chatEnabled && !isTeacherSocket(socket)) return;
 
+
+    // Guard: individual text disabled
+    if (payload.message && room.textDisabledUserIds.has(socket.userId) && !isTeacherSocket(socket)) {
+      socket.emit("error", { message: "Your text message permission has been revoked." });
+      return;
+    }
+
+    // Guard: individual attachments disabled
+    if (payload.attachments && room.attachmentsDisabledUserIds.has(socket.userId) && !isTeacherSocket(socket)) {
+      socket.emit("error", { message: "Your file sharing permission has been revoked." });
+      return;
+    }
+
+    // Guard: attachments disabled
+    if (payload.attachments && !room.settings.attachmentsEnabled && !isTeacherSocket(socket)) {
+      socket.emit("error", { message: "File sharing is currently disabled." });
+      return;
+    }
+
     // Guard: user muted
     if (room.mutedUserIds.has(socket.userId) && !isTeacherSocket(socket)) {
       socket.emit("error", { message: "You have been muted." });
@@ -37,7 +56,7 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     }
 
     // Rate limiting
-    const now = Date.now();
+    const now = Math.floor(Date.now() / 1000) * 1000;
     if (socket.chatRate && now - socket.chatRate.lastReset > 60_000)
       socket.chatRate = { count: 0, lastReset: now };
     socket.chatRate!.count++;
@@ -57,7 +76,14 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     room.chat.push(msg);
     if (room.chat.length > CFG.MAX_CHAT_HISTORY)
       room.chat.splice(0, room.chat.length - CFG.MAX_CHAT_HISTORY);
+    
     room.isDirty = true;
+    room.chatCountSinceLastSync++;
+
+    // Immediate sync if 60 chats reached
+    if (room.chatCountSinceLastSync >= 60) {
+      import("../services/sync.service.js").then(m => m.saveRoomStateToBackend(room.id));
+    }
 
     io.to(socket.roomId).emit("chat", { roomId: socket.roomId, payload: msg });
   });
@@ -85,8 +111,17 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     if (!socket.roomId || !isTeacherSocket(socket)) return;
     const room = ensureRoom(roomId);
     room.settings.chatEnabled = payload.enabled;
-    io.to(roomId).emit("chat_state", { roomId, payload: { enabled: room.settings.chatEnabled } });
+    io.to(roomId).emit("chat_state", { roomId, payload: { settings: room.settings } });
   });
+
+  // ── Toggle attachments on/off (teacher only) ─────────────────
+  socket.on("chat_toggle_attachments", ({ roomId, payload }) => {
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(roomId);
+    room.settings.attachmentsEnabled = payload.enabled;
+    io.to(roomId).emit("chat_state", { roomId, payload: { settings: room.settings } });
+  });
+
 
   // ── Mute user (teacher only) ────────────────────────────────
   socket.on("chat_mute_user", async ({ roomId, payload }) => {
@@ -117,6 +152,30 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
       roomId: socket.roomId,
       payload: { user: socket.user, isTyping: payload.isTyping },
     });
+  });
+
+  // ── Toggle user text (teacher only) ─────────────────────────
+  socket.on("chat_toggle_user_text", async ({ roomId, payload }) => {
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    const room = ensureRoom(roomId);
+    if (!payload.enabled) {
+      room.textDisabledUserIds.add(payload.userId);
+    } else {
+      room.textDisabledUserIds.delete(payload.userId);
+    }
+    await broadcastRoomUsers(roomId, io);
+  });
+
+  // ── Toggle user attachments (teacher only) ──────────────────
+  socket.on("chat_toggle_user_attachments", async ({ roomId, payload }) => {
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    const room = ensureRoom(roomId);
+    if (!payload.enabled) {
+      room.attachmentsDisabledUserIds.add(payload.userId);
+    } else {
+      room.attachmentsDisabledUserIds.delete(payload.userId);
+    }
+    await broadcastRoomUsers(roomId, io);
   });
 }
 

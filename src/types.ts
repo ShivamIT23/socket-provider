@@ -79,11 +79,14 @@ export interface Room {
   // feature toggles
   settings: {
     chatEnabled:      boolean;
+    attachmentsEnabled: boolean;
     drawingEnabled:   boolean;
     videoEnabled:     boolean;
     screenShareLimit: number;
   };
   mutedUserIds:       Set<string>;
+  textDisabledUserIds: Set<string>;
+  attachmentsDisabledUserIds: Set<string>;
   // viewport
   isViewportSynced:   boolean;
   isViewportLocked:   boolean;
@@ -97,6 +100,8 @@ export interface Room {
   lastActivity:       number;
   cleanupTimer:       NodeJS.Timeout | null;
   isDirty:            boolean;
+  lastChatSyncTime:   number;
+  chatCountSinceLastSync: number;
 }
 
 // ─── Custom Socket ────────────────────────────────────────────

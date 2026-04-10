@@ -34,7 +34,12 @@ export async function saveRoomStateToBackend(roomId: string) {
         chatState: room.chat,
       }),
     });
-    if (res.ok) { room.isDirty = false; log.debug(`Synced room ${roomId}`); }
+    if (res.ok) { 
+      room.isDirty = false; 
+      room.chatCountSinceLastSync = 0;
+      room.lastChatSyncTime = Date.now();
+      log.debug(`Synced room ${roomId}`); 
+    }
     else log.warn(`Sync failed ${roomId}: ${res.status}`);
   } catch (e: any) {
     log.error(`Sync error ${roomId}:`, e.message);
@@ -47,10 +52,21 @@ let syncJob: NodeJS.Timeout;
 let gcJob: NodeJS.Timeout;
 
 export function startBackgroundJobs() {
-  // Sync dirty rooms every 30s
+  // Sync dirty rooms (board changes every 30s, or chats every 30s/60msg)
   syncJob = setInterval(async () => {
-    const dirty = [...rooms.values()].filter(r => r.isDirty && r.participants.size > 0);
-    await Promise.all(dirty.map(r => saveRoomStateToBackend(r.id)));
+    const CHAT_SYNC_MS = 30 * 1000;
+    const now = Date.now();
+    
+    const toSync = [...rooms.values()].filter(r => {
+      if (r.participants.size === 0) return false;
+      
+      const chatThresholdReached = r.chatCountSinceLastSync >= 60 || (now - r.lastChatSyncTime >= CHAT_SYNC_MS);
+      return r.isDirty && (chatThresholdReached || r.chatCountSinceLastSync === 0); 
+      // Note: we still sync if isDirty is true from board changes, 
+      // but we always sync if chat threshold is reached.
+    });
+
+    await Promise.all(toSync.map(r => saveRoomStateToBackend(r.id)));
   }, CFG.SYNC_INTERVAL_MS);
 
   // Garbage collect stale rooms every hour
