@@ -29,15 +29,25 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
     payload: {
       count: all.length,
       hasTeacher: !!room.ownerUserId,
-      users: all.map(p => ({
-        user_id: p.user.id,
-        username: p.user.name,
-        socket_id: p.socketId,
-        isMuted: room.mutedUserIds.has(p.user.id),
-        textEnabled: !room.textDisabledUserIds.has(p.user.id),
-        attachmentsEnabled: !room.attachmentsDisabledUserIds.has(p.user.id),
-        mediaState: p.mediaState,
-      })),
+      users: all.map(p => {
+        let textAllowed = room.settings.chatEnabled;
+        if (room.textEnabledUserIds.has(p.user.id)) textAllowed = true;
+        if (room.textDisabledUserIds.has(p.user.id)) textAllowed = false;
+
+        let attachmentsAllowed = room.settings.attachmentsEnabled;
+        if (room.attachmentsEnabledUserIds.has(p.user.id)) attachmentsAllowed = true;
+        if (room.attachmentsDisabledUserIds.has(p.user.id)) attachmentsAllowed = false;
+
+        return {
+          user_id: p.user.id,
+          username: p.user.name,
+          socket_id: p.socketId,
+          isMuted: room.mutedUserIds.has(p.user.id),
+          textEnabled: textAllowed,
+          attachmentsEnabled: attachmentsAllowed,
+          mediaState: p.mediaState,
+        };
+      }),
     },
   };
 

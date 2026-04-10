@@ -27,25 +27,22 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     if (!socket.roomId || !socket.userId) return;
     const room = ensureRoom(socket.roomId);
 
-    // Guard: chat disabled
-    if (!room.settings.chatEnabled && !isTeacherSocket(socket)) return;
+    // Guard: individual overrides or global default
+    let textAllowed = room.settings.chatEnabled;
+    if (room.textEnabledUserIds.has(socket.userId)) textAllowed = true;
+    if (room.textDisabledUserIds.has(socket.userId)) textAllowed = false;
 
-
-    // Guard: individual text disabled
-    if (payload.message && room.textDisabledUserIds.has(socket.userId) && !isTeacherSocket(socket)) {
-      socket.emit("error", { message: "Your text message permission has been revoked." });
+    if (payload.message && !textAllowed && !isTeacherSocket(socket)) {
+      socket.emit("error", { message: "Text messages are currently disabled for you." });
       return;
     }
 
-    // Guard: individual attachments disabled
-    if (payload.attachments && room.attachmentsDisabledUserIds.has(socket.userId) && !isTeacherSocket(socket)) {
-      socket.emit("error", { message: "Your file sharing permission has been revoked." });
-      return;
-    }
+    let attachmentsAllowed = room.settings.attachmentsEnabled;
+    if (room.attachmentsEnabledUserIds.has(socket.userId)) attachmentsAllowed = true;
+    if (room.attachmentsDisabledUserIds.has(socket.userId)) attachmentsAllowed = false;
 
-    // Guard: attachments disabled
-    if (payload.attachments && !room.settings.attachmentsEnabled && !isTeacherSocket(socket)) {
-      socket.emit("error", { message: "File sharing is currently disabled." });
+    if (payload.attachments && !attachmentsAllowed && !isTeacherSocket(socket)) {
+      socket.emit("error", { message: "File sharing is currently disabled for you." });
       return;
     }
 
@@ -111,7 +108,11 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     if (!socket.roomId || !isTeacherSocket(socket)) return;
     const room = ensureRoom(roomId);
     room.settings.chatEnabled = payload.enabled;
+    // Clear individual overrides when changing global state
+    room.textDisabledUserIds.clear();
+    room.textEnabledUserIds.clear();
     io.to(roomId).emit("chat_state", { roomId, payload: { settings: room.settings } });
+    broadcastRoomUsers(roomId, io);
   });
 
   // ── Toggle attachments on/off (teacher only) ─────────────────
@@ -119,7 +120,11 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     if (!isTeacherSocket(socket)) return;
     const room = ensureRoom(roomId);
     room.settings.attachmentsEnabled = payload.enabled;
+    // Clear individual overrides when changing global state
+    room.attachmentsDisabledUserIds.clear();
+    room.attachmentsEnabledUserIds.clear();
     io.to(roomId).emit("chat_state", { roomId, payload: { settings: room.settings } });
+    broadcastRoomUsers(roomId, io);
   });
 
 
@@ -160,7 +165,9 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     const room = ensureRoom(roomId);
     if (!payload.enabled) {
       room.textDisabledUserIds.add(payload.userId);
+      room.textEnabledUserIds.delete(payload.userId);
     } else {
+      room.textEnabledUserIds.add(payload.userId);
       room.textDisabledUserIds.delete(payload.userId);
     }
     await broadcastRoomUsers(roomId, io);
@@ -172,7 +179,9 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
     const room = ensureRoom(roomId);
     if (!payload.enabled) {
       room.attachmentsDisabledUserIds.add(payload.userId);
+      room.attachmentsEnabledUserIds.delete(payload.userId);
     } else {
+      room.attachmentsEnabledUserIds.add(payload.userId);
       room.attachmentsDisabledUserIds.delete(payload.userId);
     }
     await broadcastRoomUsers(roomId, io);

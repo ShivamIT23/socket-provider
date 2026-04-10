@@ -53,6 +53,25 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       payload: { userId: socket.userId, name: socket.user?.name, ...payload },
     });
   });
+
+  // ── Live stroke synchronization ──────────────────────────────
+  socket.on("stroke_draw", ({ payload }) => {
+    if (!socket.roomId) return;
+    socket.to(socket.roomId).emit("stroke_draw", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Clear canvas (teacher only) ─────────────────────────────
+  socket.on("clear_canvas", () => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    // Broadcast to everyone in the room (including sender via io.in)
+    io.in(socket.roomId).emit("clear_canvas", {
+      roomId: socket.roomId,
+    });
+  });
 }
 
 // ─── REST routes ──────────────────────────────────────────────

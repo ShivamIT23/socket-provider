@@ -86,7 +86,9 @@ export interface Room {
   };
   mutedUserIds:       Set<string>;
   textDisabledUserIds: Set<string>;
+  textEnabledUserIds: Set<string>;
   attachmentsDisabledUserIds: Set<string>;
+  attachmentsEnabledUserIds: Set<string>;
   // viewport
   isViewportSynced:   boolean;
   isViewportLocked:   boolean;

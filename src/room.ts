@@ -34,7 +34,9 @@ export function ensureRoom(roomId: string): Room {
       chat: [],
       mutedUserIds: new Set(),
       textDisabledUserIds: new Set(),
+      textEnabledUserIds: new Set(),
       attachmentsDisabledUserIds: new Set(),
+      attachmentsEnabledUserIds: new Set(),
       isLocked: false,
       isFrozen: false,
       settings: {
