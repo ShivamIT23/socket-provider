@@ -67,9 +67,54 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
   socket.on("clear_canvas", () => {
     if (!socket.roomId) return;
     if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+    // Also clear board files from memory
+    room.boardFiles = [];
     // Broadcast to everyone in the room (including sender via io.in)
     io.in(socket.roomId).emit("clear_canvas", {
       roomId: socket.roomId,
+    });
+  });
+
+  // ── Board file: add (teacher only) ─────────────────────────
+  socket.on("board_file_add", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+
+    const boardFile = {
+      id: payload.id || crypto.randomUUID(),
+      url: payload.url,
+      name: payload.name,
+      position: payload.position || { x: 0.5, y: 0.5 },
+      scale: payload.scale || 0.3,
+      addedBy: socket.user?.name || "Teacher",
+      timestamp: Date.now(),
+    };
+
+    room.boardFiles.push(boardFile);
+    // Cap at 20 files to prevent memory overflow
+    if (room.boardFiles.length > 20) {
+      room.boardFiles.splice(0, room.boardFiles.length - 20);
+    }
+
+    io.in(socket.roomId).emit("board_file_add", {
+      roomId: socket.roomId,
+      payload: boardFile,
+    });
+  });
+
+  // ── Board file: remove (teacher only) ──────────────────────
+  socket.on("board_file_remove", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+
+    room.boardFiles = room.boardFiles.filter(f => f.id !== payload.id);
+
+    io.in(socket.roomId).emit("board_file_remove", {
+      roomId: socket.roomId,
+      payload: { id: payload.id },
     });
   });
 }

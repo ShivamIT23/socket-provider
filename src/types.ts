@@ -65,6 +65,16 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface BoardFile {
+  id: string;
+  url: string;       // base64 data URL
+  name: string;
+  position: { x: number; y: number };  // normalized 0-1
+  scale: number;     // normalized relative to canvas width
+  addedBy: string;   // user name
+  timestamp: number;
+}
+
 export interface Room {
   id: string;
   ownerUserId:        string | null;
@@ -104,6 +114,8 @@ export interface Room {
   isDirty:            boolean;
   lastChatSyncTime:   number;
   chatCountSinceLastSync: number;
+  // board files (in-memory, like chat)
+  boardFiles:         BoardFile[];
 }
 
 // ─── Custom Socket ────────────────────────────────────────────

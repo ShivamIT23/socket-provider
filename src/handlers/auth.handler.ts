@@ -202,6 +202,11 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     if (room.isLocked) socket.emit("lock_state", { roomId, payload: { isLocked: true } });
     if (room.isFrozen) socket.emit("frozen_state", { roomId, payload: { isFrozen: true } });
 
+    // Board files state for newcomers
+    if (room.boardFiles.length > 0) {
+      socket.emit("board_files_state", { roomId, payload: room.boardFiles });
+    }
+
     // Viewport state
     socket.emit("viewport_sync_state", { roomId, payload: { isViewportSynced: room.isViewportSynced } });
     socket.emit("viewport_lock_state", { roomId, payload: { isViewportLocked: room.isViewportLocked, viewport: room.lastViewport } });
