@@ -207,6 +207,11 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
       socket.emit("board_files_state", { roomId, payload: room.boardFiles });
     }
 
+    // Board objects state (strokes, text) for newcomers
+    if (room.boardObjects.length > 0) {
+      socket.emit("board_objects_state", { roomId, payload: room.boardObjects });
+    }
+
     // Viewport state
     socket.emit("viewport_sync_state", { roomId, payload: { isViewportSynced: room.isViewportSynced } });
     socket.emit("viewport_lock_state", { roomId, payload: { isViewportLocked: room.isViewportLocked, viewport: room.lastViewport } });

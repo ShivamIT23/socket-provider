@@ -116,6 +116,7 @@ export interface Room {
   chatCountSinceLastSync: number;
   // board files (in-memory, like chat)
   boardFiles:         BoardFile[];
+  boardObjects:       any[];
 }
 
 // ─── Custom Socket ────────────────────────────────────────────

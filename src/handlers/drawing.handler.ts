@@ -57,7 +57,42 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
   // ── Live stroke synchronization ──────────────────────────────
   socket.on("stroke_draw", ({ payload }) => {
     if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    
+    // Persist final stroke state for Z-order matching
+    if (payload.type === "end") {
+      room.boardObjects.push({ type: "stroke", payload });
+    }
+
     socket.to(socket.roomId).emit("stroke_draw", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Text object add (broadcast to other peers) ───────────────
+  socket.on("text_add", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    if (room.isLocked && !isTeacherSocket(socket)) return;
+
+    room.boardObjects.push({ type: "text", payload });
+
+    socket.to(socket.roomId).emit("text_add", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Text object update (broadcast content/position changes) ──
+  socket.on("text_update", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    if (room.isLocked && !isTeacherSocket(socket)) return;
+    socket.to(socket.roomId).emit("text_update", {
       roomId: socket.roomId,
       payload,
     });
@@ -68,8 +103,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     if (!isTeacherSocket(socket)) return;
     const room = ensureRoom(socket.roomId);
-    // Also clear board files from memory
+    // Also clear board files and objects from memory
     room.boardFiles = [];
+    room.boardObjects = [];
     // Broadcast to everyone in the room (including sender via io.in)
     io.in(socket.roomId).emit("clear_canvas", {
       roomId: socket.roomId,
@@ -115,6 +151,64 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     io.in(socket.roomId).emit("board_file_remove", {
       roomId: socket.roomId,
       payload: { id: payload.id },
+    });
+  });
+
+  // ── Board file: update (teacher only) ──────────────────────
+  socket.on("board_file_update", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+
+    console.log(`[board_file_update] Received from ${socket.user?.name} for file ${payload.id}:`, payload);
+
+    const file = room.boardFiles.find(f => f.id === payload.id);
+    if (file) {
+      if (payload.position) file.position = payload.position;
+      if (payload.scale) file.scale = payload.scale;
+      console.log(`[board_file_update] Updated file ${payload.id} in memory.`);
+    }
+
+    socket.to(socket.roomId).emit("board_file_update", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Board background color change (teacher only) ─────────────
+  socket.on("board_color_change", ({ color, page }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    
+    const room = ensureRoom(socket.roomId);
+    
+    // If a page index was sent, find the page id. 
+    // For now we just broadcast the index and color so clients can handle it.
+    io.in(socket.roomId).emit("board_color_sync", {
+      roomId: socket.roomId,
+      color,
+      page,
+    });
+  });
+
+  // ── Page update (teacher only) ──────────────────────────────
+  socket.on("page_update", (data) => {
+    const { payload } = data;
+    if (!socket.roomId) return;
+    
+    const isTeacher = isTeacherSocket(socket);
+    console.log(`[page_update] Request from ${socket.user?.name} (id: ${socket.userId}). IsTeacher: ${isTeacher}. Payload:`, payload);
+
+    if (!isTeacher) {
+        console.warn(`[page_update] Access denied for ${socket.user?.name}`);
+        return;
+    }
+    
+    // Broadcast to everyone including the sender
+    console.log(`[page_update] Broadcasting to room ${socket.roomId}`);
+    io.to(socket.roomId).emit("page_update", {
+      roomId: socket.roomId,
+      payload,
     });
   });
 }

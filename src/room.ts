@@ -52,6 +52,7 @@ export function ensureRoom(roomId: string): Room {
       lastChatSyncTime: Date.now(),
       chatCountSinceLastSync: 0,
       boardFiles: [],
+      boardObjects: [],
     });
 
     // No longer loading historical chats into memory here
