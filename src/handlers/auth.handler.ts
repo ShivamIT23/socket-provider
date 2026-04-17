@@ -45,7 +45,10 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
           isMuted: room.mutedUserIds.has(p.user.id),
           textEnabled: textAllowed,
           attachmentsEnabled: attachmentsAllowed,
+          drawingEnabled: room.drawingEnabledUserIds.has(p.user.id),
           mediaState: p.mediaState,
+          role: p.user.id === room.ownerUserId ? "teacher" : "student",
+          isTeacher: p.user.id === room.ownerUserId,
         };
       }),
     },

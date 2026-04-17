@@ -59,6 +59,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
+
+    // Per-student drawing guard: students must be in drawingEnabledUserIds
+    if (!isTeacherSocket(socket) && socket.userId && !room.drawingEnabledUserIds.has(socket.userId)) return;
     
     // Persist final stroke state for Z-order matching
     if (payload.type === "end") {
@@ -77,6 +80,8 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const room = rooms.get(socket.roomId);
     if (!room) return;
     if (room.isLocked && !isTeacherSocket(socket)) return;
+    // Per-student drawing guard
+    if (!isTeacherSocket(socket) && socket.userId && !room.drawingEnabledUserIds.has(socket.userId)) return;
 
     room.boardObjects.push({ type: "text", payload });
 
@@ -95,6 +100,100 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     socket.to(socket.roomId).emit("text_update", {
       roomId: socket.roomId,
       payload,
+    });
+  });
+
+  // ── Shape add (broadcast to other peers) ─────────────────────
+  socket.on("shape_add", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    if (room.isLocked && !isTeacherSocket(socket)) return;
+
+    room.boardObjects.push({ type: "shape", payload });
+
+    socket.to(socket.roomId).emit("shape_add", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Shape update (broadcast position/size changes) ───────────
+  socket.on("shape_update", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    if (room.isLocked && !isTeacherSocket(socket)) return;
+    socket.to(socket.roomId).emit("shape_update", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Toggle per-student drawing permission (teacher only) ─────
+  socket.on("board_toggle_user_drawing", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+    const { userId, enabled } = payload;
+    if (enabled) {
+      room.drawingEnabledUserIds.add(userId);
+    } else {
+      room.drawingEnabledUserIds.delete(userId);
+    }
+    // Notify the specific student of their drawing state
+    // Find socket IDs for this userId
+    for (const [sid, p] of room.participants) {
+      if (p.user.id === userId) {
+        io.to(sid).emit("drawing_permission", {
+          roomId: socket.roomId,
+          payload: { enabled },
+        });
+      }
+    }
+    // Broadcast updated user list so teacher UI updates
+    const all = Array.from(room.participants.values());
+    io.to(socket.roomId).emit("room_users", {
+      roomId: socket.roomId,
+      payload: {
+        count: all.length,
+        hasTeacher: !!room.ownerUserId,
+        users: all.map(p => ({
+          user_id: p.user.id,
+          username: p.user.name,
+          socket_id: p.socketId,
+          isMuted: room.mutedUserIds.has(p.user.id),
+          drawingEnabled: room.drawingEnabledUserIds.has(p.user.id),
+          mediaState: p.mediaState,
+          role: p.user.id === room.ownerUserId ? "teacher" : "student",
+          isTeacher: p.user.id === room.ownerUserId,
+        })),
+      },
+    });
+  });
+
+  // ── Global board freeze (teacher only) ──────────────────────
+  socket.on("board_toggle_freeze", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+    room.isFrozen = !!payload.enabled;
+    io.in(socket.roomId).emit("frozen_state", {
+      roomId: socket.roomId,
+      payload: { isFrozen: room.isFrozen },
+    });
+  });
+
+  // ── Laser pointer relay ─────────────────────────────────────
+  socket.on("laser_pointer", ({ payload }) => {
+    if (!socket.roomId) return;
+    socket.to(socket.roomId).emit("laser_pointer", {
+      roomId: socket.roomId,
+      payload: {
+        userId: socket.userId,
+        userName: socket.user?.name,
+        ...payload,
+      },
     });
   });
 
@@ -206,7 +305,22 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     
     // Broadcast to everyone including the sender
     console.log(`[page_update] Broadcasting to room ${socket.roomId}`);
-    io.to(socket.roomId).emit("page_update", {
+    socket.to(socket.roomId).emit("page_update", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── View Sync (teacher + drawing-enabled students) ─────────────
+  socket.on("view_sync", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    // Allow teacher OR drawing-enabled students to broadcast scroll
+    const isTeacher = isTeacherSocket(socket);
+    const isDrawingEnabled = socket.userId && room.drawingEnabledUserIds.has(socket.userId);
+    if (!isTeacher && !isDrawingEnabled) return;
+    socket.to(socket.roomId).emit("view_sync", {
       roomId: socket.roomId,
       payload,
     });

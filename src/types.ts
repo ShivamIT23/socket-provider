@@ -99,6 +99,7 @@ export interface Room {
   textEnabledUserIds: Set<string>;
   attachmentsDisabledUserIds: Set<string>;
   attachmentsEnabledUserIds: Set<string>;
+  drawingEnabledUserIds: Set<string>;
   // viewport
   isViewportSynced:   boolean;
   isViewportLocked:   boolean;

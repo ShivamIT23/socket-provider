@@ -37,6 +37,7 @@ export function ensureRoom(roomId: string): Room {
       textEnabledUserIds: new Set(),
       attachmentsDisabledUserIds: new Set(),
       attachmentsEnabledUserIds: new Set(),
+      drawingEnabledUserIds: new Set(),
       isLocked: false,
       isFrozen: false,
       settings: {
