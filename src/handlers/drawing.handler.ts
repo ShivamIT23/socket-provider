@@ -13,6 +13,7 @@ import type { Server } from "socket.io";
 import type { Application } from "express";
 import type { CustomSocket } from "../types.js";
 import { rooms, ensureRoom, getPage, mergeElements, pageSnapshot, isTeacherSocket } from "../room.js";
+import { broadcastRoomUsers } from "./auth.handler.js";
 
 // ─── Socket handlers ──────────────────────────────────────────
 
@@ -23,10 +24,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = ensureRoom(socket.roomId);
 
-    // Guard: freeze blocks everyone
-    if (room.isFrozen) return;
-    // Guard: lock blocks non-teachers
-    if (room.isLocked && !isTeacherSocket(socket)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
 
     const page = getPage(room, payload?.pageId || room.currentPageId);
     const accepted = mergeElements(page, payload?.elements ?? []);
@@ -60,17 +60,46 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const room = rooms.get(socket.roomId);
     if (!room) return;
 
-    // Per-student drawing guard: students must be in drawingEnabledUserIds
-    if (!isTeacherSocket(socket) && socket.userId && !room.drawingEnabledUserIds.has(socket.userId)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
     
-    // Persist final stroke state for Z-order matching
-    if (payload.type === "end") {
-      room.boardObjects.push({ type: "stroke", payload });
+    // Persist and buffer strokes
+    if (payload.type === "start") {
+      room.strokeBuffers.set(payload.id, {
+        points: [payload.point],
+        color: payload.color || "#fff",
+        width: payload.width || 0.002,
+        page: payload.page ?? 0
+      });
+    } else if (payload.type === "draw") {
+      const buffer = room.strokeBuffers.get(payload.id);
+      if (buffer) buffer.points.push(payload.point);
+    } else if (payload.type === "end") {
+      const buffer = room.strokeBuffers.get(payload.id);
+      if (buffer) {
+        const fullStroke = {
+          id: payload.id,
+          type: "full",
+          points: buffer.points,
+          color: buffer.color,
+          width: buffer.width,
+          page: buffer.page
+        };
+        room.boardObjects.push({ type: "stroke", payload: fullStroke, timestamp: Date.now() });
+        room.redoObjects = []; // Clear redo stack on new action
+        room.strokeBuffers.delete(payload.id);
+        room.isDirty = true;
+        room.boardCountSinceLastSync++;
+        if (room.boardCountSinceLastSync >= 60) {
+          import("../services/sync.service.js").then(m => m.saveRoomStateToBackend(room.id));
+        }
+      }
     }
 
     socket.to(socket.roomId).emit("stroke_draw", {
       roomId: socket.roomId,
-      payload,
+      payload: { ...payload, timestamp: Date.now() },
     });
   });
 
@@ -79,15 +108,21 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
-    if (room.isLocked && !isTeacherSocket(socket)) return;
-    // Per-student drawing guard
-    if (!isTeacherSocket(socket) && socket.userId && !room.drawingEnabledUserIds.has(socket.userId)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
 
-    room.boardObjects.push({ type: "text", payload });
+    room.boardObjects.push({ type: "text", payload, timestamp: Date.now() });
+    room.redoObjects = []; // Clear redo stack on new action
+    room.isDirty = true;
+    room.boardCountSinceLastSync++;
+    if (room.boardCountSinceLastSync >= 60) {
+      import("../services/sync.service.js").then(m => m.saveRoomStateToBackend(room.id));
+    }
 
     socket.to(socket.roomId).emit("text_add", {
       roomId: socket.roomId,
-      payload,
+      payload: { ...payload, timestamp: Date.now() },
     });
   });
 
@@ -96,7 +131,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
-    if (room.isLocked && !isTeacherSocket(socket)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
     socket.to(socket.roomId).emit("text_update", {
       roomId: socket.roomId,
       payload,
@@ -108,13 +145,21 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
-    if (room.isLocked && !isTeacherSocket(socket)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
 
-    room.boardObjects.push({ type: "shape", payload });
+    room.boardObjects.push({ type: "shape", payload, timestamp: Date.now() });
+    room.redoObjects = []; // Clear redo stack on new action
+    room.isDirty = true;
+    room.boardCountSinceLastSync++;
+    if (room.boardCountSinceLastSync >= 60) {
+      import("../services/sync.service.js").then(m => m.saveRoomStateToBackend(room.id));
+    }
 
     socket.to(socket.roomId).emit("shape_add", {
       roomId: socket.roomId,
-      payload,
+      payload: { ...payload, timestamp: Date.now() },
     });
   });
 
@@ -123,7 +168,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
-    if (room.isLocked && !isTeacherSocket(socket)) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
     socket.to(socket.roomId).emit("shape_update", {
       roomId: socket.roomId,
       payload,
@@ -137,50 +184,34 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const room = ensureRoom(socket.roomId);
     const { userId, enabled } = payload;
     if (enabled) {
+      room.drawingEnabledUserIds.clear();
       room.drawingEnabledUserIds.add(userId);
     } else {
       room.drawingEnabledUserIds.delete(userId);
     }
-    // Notify the specific student of their drawing state
-    // Find socket IDs for this userId
+    // Notify all participants of their (potentially revoked/granted) drawing state
     for (const [sid, p] of room.participants) {
-      if (p.user.id === userId) {
-        io.to(sid).emit("drawing_permission", {
-          roomId: socket.roomId,
-          payload: { enabled },
-        });
-      }
+      io.to(sid).emit("drawing_permission", {
+        roomId: socket.roomId,
+        payload: { enabled: room.drawingEnabledUserIds.has(p.user.id) },
+      });
     }
     // Broadcast updated user list so teacher UI updates
-    const all = Array.from(room.participants.values());
-    io.to(socket.roomId).emit("room_users", {
-      roomId: socket.roomId,
-      payload: {
-        count: all.length,
-        hasTeacher: !!room.ownerUserId,
-        users: all.map(p => ({
-          user_id: p.user.id,
-          username: p.user.name,
-          socket_id: p.socketId,
-          isMuted: room.mutedUserIds.has(p.user.id),
-          drawingEnabled: room.drawingEnabledUserIds.has(p.user.id),
-          mediaState: p.mediaState,
-          role: p.user.id === room.ownerUserId ? "teacher" : "student",
-          isTeacher: p.user.id === room.ownerUserId,
-        })),
-      },
-    });
+    broadcastRoomUsers(socket.roomId, io);
   });
 
-  // ── Global board freeze (teacher only) ──────────────────────
-  socket.on("board_toggle_freeze", ({ payload }) => {
+  // ── Global view lock (teacher only) ─────────────────────────
+  socket.on("board_toggle_view_lock", ({ payload }) => {
     if (!socket.roomId) return;
     if (!isTeacherSocket(socket)) return;
     const room = ensureRoom(socket.roomId);
-    room.isFrozen = !!payload.enabled;
-    io.in(socket.roomId).emit("frozen_state", {
+    
+    // Using a new parameter on room or extending it dynamically since it's just a runtime broadcast for now
+    room.isViewLocked = !!payload.enabled;
+    
+    io.in(socket.roomId).emit("view_locked_state", {
       roomId: socket.roomId,
-      payload: { isFrozen: room.isFrozen },
+      payload: { isLocked: !!payload.enabled },
     });
   });
 
@@ -205,10 +236,54 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     // Also clear board files and objects from memory
     room.boardFiles = [];
     room.boardObjects = [];
+    room.redoObjects = [];
     // Broadcast to everyone in the room (including sender via io.in)
     io.in(socket.roomId).emit("clear_canvas", {
       roomId: socket.roomId,
     });
+  });
+
+  // ── Undo (teacher only) ─────────────────────────────────────
+  socket.on("board_undo", () => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+    if (room.boardObjects.length === 0) return;
+
+    const lastObj = room.boardObjects.pop();
+    if (lastObj) {
+      room.redoObjects.push(lastObj);
+      io.in(socket.roomId).emit("object_remove", {
+        roomId: socket.roomId,
+        payload: { id: lastObj.payload.id }
+      });
+    }
+  });
+
+  // ── Redo (teacher only) ─────────────────────────────────────
+  socket.on("board_redo", () => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const room = ensureRoom(socket.roomId);
+    if (room.redoObjects.length === 0) return;
+
+    const obj = room.redoObjects.pop();
+    if (obj) {
+      obj.timestamp = Date.now();
+      room.boardObjects.push(obj);
+      // Re-emit based on type
+      let event = "";
+      if (obj.type === "stroke") event = "stroke_add";
+      else if (obj.type === "text") event = "text_add";
+      else if (obj.type === "shape") event = "shape_add";
+
+      if (event) {
+        io.in(socket.roomId).emit(event, {
+          roomId: socket.roomId,
+          payload: obj.payload
+        });
+      }
+    }
   });
 
   // ── Board file: add (teacher only) ─────────────────────────
@@ -325,7 +400,20 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       payload,
     });
   });
+  // ── Request objects for a specific page ─────────────────────
+  socket.on("board_request_objects", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    const pageNum = payload.page ?? 0;
+    
+    const objects = room.boardObjects.filter(obj => obj.payload.page === pageNum);
+    if (objects.length > 0) {
+      socket.emit("board_objects_state", { roomId: socket.roomId, payload: objects });
+    }
+  });
 }
+
 
 // ─── REST routes ──────────────────────────────────────────────
 

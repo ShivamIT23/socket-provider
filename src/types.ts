@@ -84,8 +84,6 @@ export interface Room {
   currentPageId:      string | null;
   participants:       Map<string, Participant>;
   chat:               ChatMessage[];
-  isLocked:           boolean;
-  isFrozen:           boolean;
   // feature toggles
   settings: {
     chatEnabled:      boolean;
@@ -100,8 +98,10 @@ export interface Room {
   attachmentsDisabledUserIds: Set<string>;
   attachmentsEnabledUserIds: Set<string>;
   drawingEnabledUserIds: Set<string>;
+  drawingDisabledUserIds: Set<string>;
   // viewport
   isViewportSynced:   boolean;
+  isViewLocked : boolean;
   isViewportLocked:   boolean;
   lastViewport:       ViewportState | null;
   // timer
@@ -111,13 +111,16 @@ export interface Room {
   timerInterval:      NodeJS.Timeout | null;
   // meta
   lastActivity:       number;
-  cleanupTimer:       NodeJS.Timeout | null;
+  boardObjects:       Array<{ type: string; payload: any; timestamp: number }>;
+  redoObjects:        Array<{ type: string; payload: any; timestamp: number }>;
+  strokeBuffers:      Map<string, any>;
   isDirty:            boolean;
   lastChatSyncTime:   number;
   chatCountSinceLastSync: number;
+  boardCountSinceLastSync: number;
   // board files (in-memory, like chat)
   boardFiles:         BoardFile[];
-  boardObjects:       any[];
+  cleanupTimer:       NodeJS.Timeout | null;
 }
 
 // ─── Custom Socket ────────────────────────────────────────────

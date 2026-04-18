@@ -38,8 +38,8 @@ export function ensureRoom(roomId: string): Room {
       attachmentsDisabledUserIds: new Set(),
       attachmentsEnabledUserIds: new Set(),
       drawingEnabledUserIds: new Set(),
-      isLocked: false,
-      isFrozen: false,
+      drawingDisabledUserIds: new Set(),
+      isViewLocked: false,
       settings: {
         chatEnabled: true,
         attachmentsEnabled: true,
@@ -52,8 +52,11 @@ export function ensureRoom(roomId: string): Room {
       lastActivity: Date.now(), cleanupTimer: null, isDirty: false,
       lastChatSyncTime: Date.now(),
       chatCountSinceLastSync: 0,
+      boardCountSinceLastSync: 0,
       boardFiles: [],
       boardObjects: [],
+      redoObjects: [],
+      strokeBuffers: new Map(),
     });
 
     // No longer loading historical chats into memory here

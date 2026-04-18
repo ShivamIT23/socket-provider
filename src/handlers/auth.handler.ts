@@ -38,6 +38,9 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
         if (room.attachmentsEnabledUserIds.has(p.user.id)) attachmentsAllowed = true;
         if (room.attachmentsDisabledUserIds.has(p.user.id)) attachmentsAllowed = false;
 
+        let drawingAllowed = false;
+        if (room.drawingEnabledUserIds.has(p.user.id)) drawingAllowed = true;
+
         return {
           user_id: p.user.id,
           username: p.user.name,
@@ -45,7 +48,7 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
           isMuted: room.mutedUserIds.has(p.user.id),
           textEnabled: textAllowed,
           attachmentsEnabled: attachmentsAllowed,
-          drawingEnabled: room.drawingEnabledUserIds.has(p.user.id),
+          drawingEnabled: drawingAllowed,
           mediaState: p.mediaState,
           role: p.user.id === room.ownerUserId ? "teacher" : "student",
           isTeacher: p.user.id === room.ownerUserId,
@@ -201,9 +204,10 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     if (room.mutedUserIds.has(socket.userId!))
       socket.emit("user_muted_status", { roomId, payload: { isMuted: true } });
 
-    // Lock / freeze state
-    if (room.isLocked) socket.emit("lock_state", { roomId, payload: { isLocked: true } });
-    if (room.isFrozen) socket.emit("frozen_state", { roomId, payload: { isFrozen: true } });
+    // View lock state
+    if (room.isViewLocked !== undefined) {
+      socket.emit("view_locked_state", { roomId, payload: { isLocked: room.isViewLocked } });
+    }
 
     // Board files state for newcomers
     if (room.boardFiles.length > 0) {
@@ -212,7 +216,20 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
     // Board objects state (strokes, text) for newcomers
     if (room.boardObjects.length > 0) {
-      socket.emit("board_objects_state", { roomId, payload: room.boardObjects });
+      const lastSync = payload?.lastSyncTimestamp ?? 0;
+      let objectsToSend = room.boardObjects;
+
+      if (lastSync > 0) {
+        // Delta sync for re-joiners: all objects since last sync
+        objectsToSend = room.boardObjects.filter(obj => obj.timestamp > lastSync);
+      } else {
+        // Load only current page for new users
+        objectsToSend = room.boardObjects.filter(obj => obj.payload.page === room.currentPageId);
+      }
+
+      if (objectsToSend.length > 0) {
+        socket.emit("board_objects_state", { roomId, payload: objectsToSend });
+      }
     }
 
     // Viewport state
