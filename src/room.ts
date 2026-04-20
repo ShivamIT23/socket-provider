@@ -53,6 +53,8 @@ export function ensureRoom(roomId: string): Room {
       lastChatSyncTime: Date.now(),
       chatCountSinceLastSync: 0,
       boardCountSinceLastSync: 0,
+      nextAllowedSyncTime: 0,
+      syncErrorCount: 0,
       boardFiles: [],
       boardObjects: [],
       redoObjects: [],

@@ -12,7 +12,7 @@ import { stopRoomTimer } from "./timer.service.js";
 
 export async function saveRoomStateToBackend(roomId: string) {
   const room = rooms.get(roomId);
-  if (!room?.isDirty) return;
+  if (!room?.isDirty || Date.now() < room.nextAllowedSyncTime) return;
   try {
     const res = await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/internal/save-state`, {
       method: "PUT",
@@ -38,11 +38,21 @@ export async function saveRoomStateToBackend(roomId: string) {
       room.isDirty = false; 
       room.chatCountSinceLastSync = 0;
       room.lastChatSyncTime = Date.now();
+      room.syncErrorCount = 0;
+      room.nextAllowedSyncTime = 0;
       log.debug(`Synced room ${roomId}`); 
     }
-    else log.warn(`Sync failed ${roomId}: ${res.status}`);
+    else {
+      log.warn(`Sync failed ${roomId}: ${res.status}`);
+      room.syncErrorCount++;
+      const backoffMs = Math.min(30000 * Math.pow(2, room.syncErrorCount - 1), 600000);
+      room.nextAllowedSyncTime = Date.now() + backoffMs;
+    }
   } catch (e: any) {
     log.error(`Sync error ${roomId}:`, e.message);
+    room.syncErrorCount++;
+    const backoffMs = Math.min(30000 * Math.pow(2, room.syncErrorCount - 1), 600000);
+    room.nextAllowedSyncTime = Date.now() + backoffMs;
   }
 }
 
@@ -58,7 +68,7 @@ export function startBackgroundJobs() {
     const now = Date.now();
     
     const toSync = [...rooms.values()].filter(r => {
-      if (r.participants.size === 0) return false;
+      if (r.participants.size === 0 || now < r.nextAllowedSyncTime) return false;
       
       const chatThresholdReached = r.chatCountSinceLastSync >= 60 || (now - r.lastChatSyncTime >= CHAT_SYNC_MS);
       return r.isDirty && (chatThresholdReached || r.chatCountSinceLastSync === 0); 

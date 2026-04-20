@@ -118,6 +118,8 @@ export interface Room {
   lastChatSyncTime:   number;
   chatCountSinceLastSync: number;
   boardCountSinceLastSync: number;
+  nextAllowedSyncTime: number;
+  syncErrorCount: number;
   // board files (in-memory, like chat)
   boardFiles:         BoardFile[];
   cleanupTimer:       NodeJS.Timeout | null;
