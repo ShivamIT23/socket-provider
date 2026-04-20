@@ -134,6 +134,19 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!isTeacherSocket(socket) && socket.userId) {
       if (!room.drawingEnabledUserIds.has(socket.userId)) return;
     }
+
+    // Persist position/content changes in boardObjects
+    const existing = room.boardObjects.find(
+      (o) => o.type === "text" && o.payload.id === payload.id
+    );
+    if (existing) {
+      if (payload.position) (existing.payload as Record<string, unknown>).position = payload.position;
+      if (payload.text !== undefined) (existing.payload as Record<string, unknown>).text = payload.text;
+      if (payload.color) (existing.payload as Record<string, unknown>).color = payload.color;
+      if (payload.fontSizeRatio) (existing.payload as Record<string, unknown>).fontSizeRatio = payload.fontSizeRatio;
+      room.isDirty = true;
+    }
+
     socket.to(socket.roomId).emit("text_update", {
       roomId: socket.roomId,
       payload,
@@ -171,7 +184,46 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!isTeacherSocket(socket) && socket.userId) {
       if (!room.drawingEnabledUserIds.has(socket.userId)) return;
     }
+
+    // Persist position/size changes in boardObjects
+    const existing = room.boardObjects.find(
+      (o) => o.type === "shape" && o.payload.id === payload.id
+    );
+    if (existing) {
+      if (payload.position) (existing.payload as Record<string, unknown>).position = payload.position;
+      if (payload.widthRatio !== undefined) (existing.payload as Record<string, unknown>).widthRatio = payload.widthRatio;
+      if (payload.heightRatio !== undefined) (existing.payload as Record<string, unknown>).heightRatio = payload.heightRatio;
+      room.isDirty = true;
+    }
+
     socket.to(socket.roomId).emit("shape_update", {
+      roomId: socket.roomId,
+      payload,
+    });
+  });
+
+  // ── Stroke update (broadcast position/size changes after move) ──
+  socket.on("stroke_update", ({ payload }) => {
+    if (!socket.roomId) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+    if (!isTeacherSocket(socket) && socket.userId) {
+      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
+    }
+
+    // Persist position/size changes in boardObjects
+    const existing = room.boardObjects.find(
+      (o) => o.type === "stroke" && o.payload.id === payload.id
+    );
+    if (existing) {
+      // Store movement offset as position override
+      if (payload.position) (existing.payload as Record<string, unknown>).movedPosition = payload.position;
+      if (payload.widthRatio !== undefined) (existing.payload as Record<string, unknown>).movedWidthRatio = payload.widthRatio;
+      if (payload.heightRatio !== undefined) (existing.payload as Record<string, unknown>).movedHeightRatio = payload.heightRatio;
+      room.isDirty = true;
+    }
+
+    socket.to(socket.roomId).emit("stroke_update", {
       roomId: socket.roomId,
       payload,
     });
