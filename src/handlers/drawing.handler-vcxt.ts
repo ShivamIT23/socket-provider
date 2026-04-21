@@ -294,7 +294,6 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const index = room.boardObjects.findIndex(o => o.payload.id === payload.id);
     if (index !== -1) {
       const obj = room.boardObjects[index];
-      // Remove from active objects
       room.boardObjects.splice(index, 1);
       // Push removal marker to history
       room.boardObjects.push({
@@ -306,7 +305,6 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       room.isDirty = true;
     }
 
-    // Broadcast the removal to others
     socket.to(socket.roomId).emit("object_remove", {
       roomId: socket.roomId,
       payload
@@ -404,12 +402,10 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     }
   });
 
-  // ── Board file: add (teacher only) ─────────────────────────
+  // ── Board files & metadata ──────────────────────────────────
   socket.on("board_file_add", ({ payload }) => {
-    if (!socket.roomId) return;
-    if (!isTeacherSocket(socket)) return;
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
     const room = ensureRoom(socket.roomId);
-
     const boardFile = {
       id: payload.id || crypto.randomUUID(),
       url: payload.url,
@@ -419,132 +415,68 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       addedBy: socket.user?.name || "Teacher",
       timestamp: Date.now(),
     };
-
     room.boardFiles.push(boardFile);
-    // Cap at 20 files to prevent memory overflow
-    if (room.boardFiles.length > 20) {
-      room.boardFiles.splice(0, room.boardFiles.length - 20);
-    }
-
-    io.in(socket.roomId).emit("board_file_add", {
-      roomId: socket.roomId,
-      payload: boardFile,
-    });
+    io.in(socket.roomId).emit("board_file_add", { roomId: socket.roomId, payload: boardFile });
   });
 
-  // ── Board file: remove (teacher only) ──────────────────────
   socket.on("board_file_remove", ({ payload }) => {
-    if (!socket.roomId) return;
-    if (!isTeacherSocket(socket)) return;
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
     const room = ensureRoom(socket.roomId);
-
     room.boardFiles = room.boardFiles.filter(f => f.id !== payload.id);
-
-    io.in(socket.roomId).emit("board_file_remove", {
-      roomId: socket.roomId,
-      payload: { id: payload.id },
-    });
+    io.in(socket.roomId).emit("board_file_remove", { roomId: socket.roomId, payload: { id: payload.id } });
   });
 
-  // ── Board file: update (teacher only) ──────────────────────
   socket.on("board_file_update", ({ payload }) => {
-    if (!socket.roomId) return;
-    if (!isTeacherSocket(socket)) return;
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
     const room = ensureRoom(socket.roomId);
-
-    console.log(`[board_file_update] Received from ${socket.user?.name} for file ${payload.id}:`, payload);
-
     const file = room.boardFiles.find(f => f.id === payload.id);
     if (file) {
       if (payload.position) file.position = payload.position;
       if (payload.scale) file.scale = payload.scale;
-      console.log(`[board_file_update] Updated file ${payload.id} in memory.`);
     }
-
-    socket.to(socket.roomId).emit("board_file_update", {
-      roomId: socket.roomId,
-      payload,
-    });
+    socket.to(socket.roomId).emit("board_file_update", { roomId: socket.roomId, payload });
   });
 
-  // ── Board background color change (teacher only) ─────────────
   socket.on("board_color_change", ({ color, page }) => {
-    if (!socket.roomId) return;
-    if (!isTeacherSocket(socket)) return;
-    
-    const room = ensureRoom(socket.roomId);
-    
-    // If a page index was sent, find the page id. 
-    // For now we just broadcast the index and color so clients can handle it.
-    io.in(socket.roomId).emit("board_color_sync", {
-      roomId: socket.roomId,
-      color,
-      page,
-    });
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    io.in(socket.roomId).emit("board_color_sync", { roomId: socket.roomId, color, page });
   });
 
-  // ── Page update (teacher only) ──────────────────────────────
   socket.on("page_update", (data) => {
-    const { payload } = data;
-    if (!socket.roomId) return;
-    
-    const isTeacher = isTeacherSocket(socket);
-    console.log(`[page_update] Request from ${socket.user?.name} (id: ${socket.userId}). IsTeacher: ${isTeacher}. Payload:`, payload);
-
-    if (!isTeacher) {
-        console.warn(`[page_update] Access denied for ${socket.user?.name}`);
-        return;
-    }
-    
-    // Broadcast to everyone including the sender
-    console.log(`[page_update] Broadcasting to room ${socket.roomId}`);
-    socket.to(socket.roomId).emit("page_update", {
-      roomId: socket.roomId,
-      payload,
-    });
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    socket.to(socket.roomId).emit("page_update", { roomId: socket.roomId, payload: data.payload });
   });
 
-  // ── View Sync (teacher + drawing-enabled students) ─────────────
   socket.on("view_sync", ({ payload }) => {
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
-    // Allow teacher OR drawing-enabled students to broadcast scroll
     const isTeacher = isTeacherSocket(socket);
     const isDrawingEnabled = socket.userId && room.drawingEnabledUserIds.has(socket.userId);
     if (!isTeacher && !isDrawingEnabled) return;
-    socket.to(socket.roomId).emit("view_sync", {
-      roomId: socket.roomId,
-      payload,
-    });
+    socket.to(socket.roomId).emit("view_sync", { roomId: socket.roomId, payload });
   });
-  // ── Request objects for a specific page ─────────────────────
+
   socket.on("board_request_objects", ({ payload }) => {
     if (!socket.roomId) return;
     const room = rooms.get(socket.roomId);
     if (!room) return;
     const pageNum = payload.page ?? 0;
-    
     // IMPORTANT: Filter out removal actions for new joiners
     const objects = room.boardObjects.filter(obj => obj.type !== "removal" && obj.payload.page === pageNum);
-    if (objects.length > 0) {
-      socket.emit("board_objects_state", { roomId: socket.roomId, payload: objects });
-    }
+    socket.emit("board_objects_state", { roomId: socket.roomId, payload: objects });
   });
 }
-
 
 // ─── REST routes ──────────────────────────────────────────────
 
 export function registerDrawingRoutes(app: Application) {
-  // Load current snapshot
   app.get("/load/:roomId", (req, res) => {
     const room = rooms.get(req.params.roomId);
     if (!room) return res.status(404).json({ ok: false });
     res.json({ ok: true, snapshot: pageSnapshot(getPage(room, room.currentPageId)) });
   });
 
-  // Save snapshot
   app.post("/save/:roomId", (req, res) => {
     const room = ensureRoom(req.params.roomId);
     const { pageId, elements, backgroundColor, appState } = req.body;

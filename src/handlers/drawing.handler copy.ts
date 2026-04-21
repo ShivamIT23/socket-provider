@@ -280,39 +280,6 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     });
   });
 
-  // ── Object removal (Eraser) ──────────────────────────────────
-  socket.on("object_remove", ({ payload }) => {
-    if (!socket.roomId) return;
-    const room = rooms.get(socket.roomId);
-    if (!room) return;
-
-    if (!isTeacherSocket(socket) && socket.userId) {
-      if (!room.drawingEnabledUserIds.has(socket.userId)) return;
-    }
-
-    // Find and record deletion in history for Undo
-    const index = room.boardObjects.findIndex(o => o.payload.id === payload.id);
-    if (index !== -1) {
-      const obj = room.boardObjects[index];
-      // Remove from active objects
-      room.boardObjects.splice(index, 1);
-      // Push removal marker to history
-      room.boardObjects.push({
-        type: "removal",
-        payload: { original: obj, index: index },
-        timestamp: Date.now()
-      });
-      room.redoObjects = [];
-      room.isDirty = true;
-    }
-
-    // Broadcast the removal to others
-    socket.to(socket.roomId).emit("object_remove", {
-      roomId: socket.roomId,
-      payload
-    });
-  });
-
   // ── Clear canvas (teacher only) ─────────────────────────────
   socket.on("clear_canvas", () => {
     if (!socket.roomId) return;
@@ -335,32 +302,12 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const room = ensureRoom(socket.roomId);
     if (room.boardObjects.length === 0) return;
 
-    const lastAction = room.boardObjects.pop();
-    if (!lastAction) return;
-
-    if (lastAction.type === "removal") {
-      // Undo-ing a deletion -> Restore at original Z-order index
-      const { original, index } = lastAction.payload;
-      room.boardObjects.splice(index, 0, original);
-      room.redoObjects.push(lastAction);
-      
-      let event = "";
-      if (original.type === "stroke") event = "stroke_add";
-      else if (original.type === "text") event = "text_add";
-      else if (original.type === "shape") event = "shape_add";
-
-      if (event) {
-        io.in(socket.roomId).emit(event, {
-          roomId: socket.roomId,
-          payload: { ...original.payload, timestamp: Date.now() }
-        });
-      }
-    } else {
-      // Undo-ing an addition -> Standard remove
-      room.redoObjects.push(lastAction);
+    const lastObj = room.boardObjects.pop();
+    if (lastObj) {
+      room.redoObjects.push(lastObj);
       io.in(socket.roomId).emit("object_remove", {
         roomId: socket.roomId,
-        payload: { id: lastAction.payload.id }
+        payload: { id: lastObj.payload.id }
       });
     }
   });
@@ -372,33 +319,20 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const room = ensureRoom(socket.roomId);
     if (room.redoObjects.length === 0) return;
 
-    const action = room.redoObjects.pop();
-    if (!action) return;
-
-    if (action.type === "removal") {
-      // Redo-ing a deletion -> Re-remove
-      const originalId = action.payload.original.payload.id;
-      const index = room.boardObjects.findIndex(o => o.payload.id === originalId);
-      if (index !== -1) room.boardObjects.splice(index, 1);
-      room.boardObjects.push(action);
-      io.in(socket.roomId).emit("object_remove", {
-        roomId: socket.roomId,
-        payload: { id: originalId }
-      });
-    } else {
-      // Redo-ing an addition -> Re-add
-      action.timestamp = Date.now();
-      room.boardObjects.push(action);
-      
+    const obj = room.redoObjects.pop();
+    if (obj) {
+      obj.timestamp = Date.now();
+      room.boardObjects.push(obj);
+      // Re-emit based on type
       let event = "";
-      if (action.type === "stroke") event = "stroke_add";
-      else if (action.type === "text") event = "text_add";
-      else if (action.type === "shape") event = "shape_add";
+      if (obj.type === "stroke") event = "stroke_add";
+      else if (obj.type === "text") event = "text_add";
+      else if (obj.type === "shape") event = "shape_add";
 
       if (event) {
         io.in(socket.roomId).emit(event, {
           roomId: socket.roomId,
-          payload: { ...action.payload, timestamp: Date.now() }
+          payload: obj.payload
         });
       }
     }
@@ -525,8 +459,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!room) return;
     const pageNum = payload.page ?? 0;
     
-    // IMPORTANT: Filter out removal actions for new joiners
-    const objects = room.boardObjects.filter(obj => obj.type !== "removal" && obj.payload.page === pageNum);
+    const objects = room.boardObjects.filter(obj => obj.payload.page === pageNum);
     if (objects.length > 0) {
       socket.emit("board_objects_state", { roomId: socket.roomId, payload: objects });
     }
