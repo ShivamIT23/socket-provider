@@ -1,0 +1,1 @@
+{"version":3,"file":"video.handler.d.ts","sourceRoot":"","sources":["../../src/handlers/video.handler.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AAGH,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,SAAS,CAAC;AAE3C,OAAO,KAAK,EAAE,YAAY,EAAE,MAAM,aAAa,CAAC;AAMhD,wBAAgB,2BAA2B,CAAC,MAAM,EAAE,YAAY,QAuB/D;AAID,wBAAgB,mBAAmB,CAAC,GAAG,EAAE,WAAW,QAyCnD"}

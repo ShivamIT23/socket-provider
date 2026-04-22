@@ -111,9 +111,13 @@ export interface Room {
   timerInterval:      NodeJS.Timeout | null;
   // meta
   lastActivity:       number;
-  boardObjects:       Array<{ type: string; payload: unknown; timestamp: number }>;
-  redoObjects:        Array<{ type: string; payload: unknown; timestamp: number }>;
-  strokeBuffers:      Map<string, unknown>;
+  // ts-
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  boardObjects:       Array<{ type: string; payload: Record<string, any>; timestamp: number }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  redoObjects:        Array<{ type: string; payload: Record<string, any>; timestamp: number }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  strokeBuffers:      Map<string, Record<string, any>>;
   isDirty:            boolean;
   lastChatSyncTime:   number;
   chatCountSinceLastSync: number;
