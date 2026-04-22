@@ -16,6 +16,15 @@ import { CFG, log } from "../config.js";
 import { startRoomTimer, stopRoomTimer } from "../services/timer.service.js";
 import { saveRoomStateToBackend } from "../services/sync.service.js";
 
+interface AuthUser {
+  id: string;
+  name?: string;
+  role?: string;
+  isTeacher?: boolean;
+  isCounsellor?: boolean;
+  usertype?: string;
+}
+
 // ─── Broadcast helpers (used within join) ─────────────────────
 
 async function broadcastRoomUsers(roomId: string, io: Server) {
@@ -86,15 +95,21 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
         },
         body: JSON.stringify({ sessionId: roomId, token }),
       });
+      if (resp.status === 403) {
+        socket.emit("error", { message: "This class has already ended." });
+        socket.disconnect();
+        return;
+      }
       if (resp.ok) {
-        const u: any = await resp.json();
+        
+        const u = await resp.json() as AuthUser;
         // The API returns the user object directly now
         if (u && u.id) {
           const currentVisitorId = socket.user?.visitorId;
           socket.user = {
             id: u.id, 
             name: u.name || socket.user?.name || "Verified User", 
-            isTeacher: u.role === 'teacher' || u.isTeacher,
+            isTeacher: u.role === 'teacher' || !!u.isTeacher,
             isCounsellor: u.isCounsellor, 
             usertype: u.usertype,
             visitorId: currentVisitorId, // Always preserve the visitorId from frontend
@@ -102,8 +117,8 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
           log.info(`Verified user: ${socket.user?.name} (visitorId: ${socket.user?.visitorId})`);
         }
       }
-    } catch (e: any) {
-      log.warn("Auth error:", e.message);
+    } catch (e: unknown) {
+      log.warn("Auth error:", e instanceof Error ? e.message : String(e));
     }
 
     socket.userId = socket.user!.id;
@@ -183,8 +198,11 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
     log.info(`Join: ${socket.user!.name} | Role: ${socket.user!.isTeacher ? 'Teacher' : 'Student'} | VisitorID: ${socket.user?.visitorId} | Room: ${roomId}`);
 
-    // Notify others AND send direct state to this newcomer to avoid race conditions
-    socket.to(roomId).emit("user_join", { roomId, payload: { user: socket.user } });
+    // Notify others ONLY if this is the first session for this user
+    const otherSessions = Array.from(room.participants.values()).filter(p => p.user.id === socket.userId && p.socketId !== socket.id);
+    if (otherSessions.length === 0) {
+      socket.to(roomId).emit("user_join", { roomId, payload: { user: socket.user } });
+    }
     const usersData = await broadcastRoomUsers(roomId, io);
     socket.emit("room_users", usersData); // Targeted send to ensure newcomer sees correct count
 
@@ -217,14 +235,16 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     // Board objects state (strokes, text) for newcomers
     if (room.boardObjects.length > 0) {
       const lastSync = payload?.lastSyncTimestamp ?? 0;
-      let objectsToSend = room.boardObjects;
+      let objectsToSend: typeof room.boardObjects;
 
       if (lastSync > 0) {
         // Delta sync for re-joiners: all objects since last sync
         objectsToSend = room.boardObjects.filter(obj => obj.timestamp > lastSync);
       } else {
         // Load only current page for new users
-        objectsToSend = room.boardObjects.filter(obj => obj.payload.page === room.currentPageId);
+        objectsToSend = room.boardObjects.filter(obj => 
+          (obj.payload as Record<string, unknown>).page === room.currentPageId
+        );
       }
 
       if (objectsToSend.length > 0) {
@@ -299,10 +319,14 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     }
     // ──────────────────────────────────────────────────────────
 
-    socket.to(socket.roomId).emit("user_leave", {
-      roomId: socket.roomId,
-      payload: { userId: socket.userId },
-    });
+    // ── Emit user_leave ONLY if this was the last session for this user ──
+    const stillInRoom = Array.from(room.participants.values()).some(p => p.user.id === socket.userId);
+    if (!stillInRoom) {
+      socket.to(socket.roomId).emit("user_leave", {
+        roomId: socket.roomId,
+        payload: { userId: socket.userId, name: socket.user?.name },
+      });
+    }
     await broadcastRoomUsers(socket.roomId, io);
 
     const size = io.sockets.adapter.rooms.get(socket.roomId)?.size ?? 0;

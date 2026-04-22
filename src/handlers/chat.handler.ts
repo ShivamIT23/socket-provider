@@ -14,7 +14,7 @@
 import type { Server } from "socket.io";
 import type { Application } from "express";
 import type { CustomSocket, ChatMessage } from "../types.js";
-import { rooms, ensureRoom, isTeacherSocket, isTeacherAuth } from "../room.js";
+import { ensureRoom, isTeacherSocket, isTeacherAuth } from "../room.js";
 import { CFG } from "../config.js";
 import { broadcastRoomUsers } from "./auth.handler.js";
 

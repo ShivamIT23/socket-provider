@@ -12,14 +12,14 @@
  */
 
 import type { Server } from "socket.io";
-import type { Application } from "express";
-import type { CustomSocket } from "../types.js";
+import type { Application, Response } from "express";
 import {
   rooms, ensureRoom, createPage, getPage,
   pageSnapshot, isTeacherAuth,
 } from "../room.js";
-import { startRoomTimer, stopRoomTimer } from "../services/timer.service.js";
+import { stopRoomTimer } from "../services/timer.service.js";
 import { saveRoomStateToBackend } from "../services/sync.service.js";
+import { CFG, log } from "../config.js";
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ function broadcastPageState(roomId: string, io: Server) {
   });
 }
 
-function requireTeacher(roomId: string, userId: string, res: any): ReturnType<typeof ensureRoom> | null {
+function requireTeacher(roomId: string, userId: string, res: Response): ReturnType<typeof ensureRoom> | null {
   if (!isTeacherAuth(roomId, userId)) { res.status(403).json({ error: "Unauthorized" }); return null; }
   return ensureRoom(roomId);
 }
@@ -67,6 +67,17 @@ export function registerControlsRoutes(app: Application, io: Server) {
   app.post("/api/room/:roomId/end", async (req, res) => {
     const { roomId } = req.params;
     const room = requireTeacher(roomId, req.body.userId, res); if (!room) return;
+    
+    // Notify main backend that class is ended
+    try {
+      await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/${roomId}/end`, {
+        method: "POST",
+        headers: { "x-internal-secret": CFG.INTERNAL_SECRET }
+      });
+    } catch (e) {
+      log.error(`Failed to notify main backend of session end for ${roomId}:`, e);
+    }
+
     io.to(roomId).emit("session_ended", { roomId });
     io.in(roomId).disconnectSockets(true);
     stopRoomTimer(roomId);

@@ -9,7 +9,7 @@
  *  - Raise hand notification
  */
 
-import type { Server } from "socket.io";
+
 import type { Application } from "express";
 import { AccessToken } from "livekit-server-sdk";
 import type { CustomSocket } from "../types.js";
@@ -18,7 +18,7 @@ import { CFG } from "../config.js";
 
 // ─── Socket handlers ──────────────────────────────────────────
 
-export function registerVideoSocketHandlers(socket: CustomSocket, io: Server) {
+export function registerVideoSocketHandlers(socket: CustomSocket) {
 
   // ── Media state (track on/off broadcast) ────────────────────
   socket.on("media_state", ({ payload }) => {

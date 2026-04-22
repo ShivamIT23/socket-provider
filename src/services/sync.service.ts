@@ -22,15 +22,13 @@ export async function saveRoomStateToBackend(roomId: string) {
       },
       body: JSON.stringify({
         sessionId: roomId,
-        boardState: {
-          pages: room.pages.map(p => ({
-            id: p.id,
-            elements: Array.from(p.elements.values()),
-            backgroundColor: p.backgroundColor,
-            appState: p.appState,
-          })),
-          currentPageId: room.currentPageId,
-        },
+        boardState: room.boardObjects.reduce((acc, obj) => {
+          const p = (obj.payload as Record<string, unknown>).page as number || 1;
+          if (!acc[p]) acc[p] = [];
+          acc[p]!.push(obj);
+          return acc;
+        }, {} as Record<number, unknown[]>),
+        boardFiles: room.boardFiles,
         chatState: room.chat,
       }),
     });
@@ -48,8 +46,8 @@ export async function saveRoomStateToBackend(roomId: string) {
       const backoffMs = Math.min(30000 * Math.pow(2, room.syncErrorCount - 1), 600000);
       room.nextAllowedSyncTime = Date.now() + backoffMs;
     }
-  } catch (e: any) {
-    log.error(`Sync error ${roomId}:`, e.message);
+  } catch (e: unknown) {
+    log.error(`Sync error ${roomId}:`, e instanceof Error ? e.message : String(e));
     room.syncErrorCount++;
     const backoffMs = Math.min(30000 * Math.pow(2, room.syncErrorCount - 1), 600000);
     room.nextAllowedSyncTime = Date.now() + backoffMs;

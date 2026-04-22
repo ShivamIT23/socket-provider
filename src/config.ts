@@ -8,7 +8,7 @@ dotenv.config();
 
 export const CFG = {
   PORT:                    Number(process.env.PORT) || 5001,
-  MAIN_BACKEND_URL:        process.env.MAIN_BACKEND_URL        || "http://localhost:5002",
+  MAIN_BACKEND_URL:        process.env.MAIN_BACKEND_URL        || "http://localhost:3002",
   LIVEKIT_API_KEY:         process.env.LIVEKIT_API_KEY         || "",
   LIVEKIT_API_SECRET:      process.env.LIVEKIT_API_SECRET      || "",
   LIVEKIT_WS_URL:          process.env.LIVEKIT_WS_URL          || "",
@@ -25,8 +25,8 @@ export const CFG = {
 };
 
 export const log = {
-  info:  (...a: any[]) => console.log ("[INFO]",  ...a),
-  warn:  (...a: any[]) => console.warn("[WARN]",  ...a),
-  error: (...a: any[]) => console.error("[ERR]",  ...a),
-  debug: (...a: any[]) => process.env.DEBUG && console.log("[DBG]", ...a),
+  info:  (...a: unknown[]) => console.log ("[INFO]",  ...a),
+  warn:  (...a: unknown[]) => console.warn("[WARN]",  ...a),
+  error: (...a: unknown[]) => console.error("[ERR]",  ...a),
+  debug: (...a: unknown[]) => process.env.DEBUG && console.log("[DBG]", ...a),
 };

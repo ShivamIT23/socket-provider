@@ -31,7 +31,7 @@ export interface ExcalidrawElement {
   id: string;
   version: number;
   isDeleted?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ViewportState {
@@ -46,7 +46,7 @@ export interface Page {
   id: string;
   elements: Map<string, ExcalidrawElement>;
   backgroundColor: string;
-  appState: Record<string, any> | null;
+  appState: Record<string, unknown> | null;
 }
 
 export interface Attachment {
@@ -111,9 +111,9 @@ export interface Room {
   timerInterval:      NodeJS.Timeout | null;
   // meta
   lastActivity:       number;
-  boardObjects:       Array<{ type: string; payload: any; timestamp: number }>;
-  redoObjects:        Array<{ type: string; payload: any; timestamp: number }>;
-  strokeBuffers:      Map<string, any>;
+  boardObjects:       Array<{ type: string; payload: unknown; timestamp: number }>;
+  redoObjects:        Array<{ type: string; payload: unknown; timestamp: number }>;
+  strokeBuffers:      Map<string, unknown>;
   isDirty:            boolean;
   lastChatSyncTime:   number;
   chatCountSinceLastSync: number;

@@ -78,7 +78,7 @@ io.on("connection", (socket: CustomSocket) => {
   registerChatSocketHandlers(socket, io);       // chat, mute, typing
   registerDrawingSocketHandlers(socket, io);    // elements_update, pointer
   registerViewportSocketHandlers(socket, io);   // viewport sync/lock/fit
-  registerVideoSocketHandlers(socket, io);      // media_state, raise_hand
+  registerVideoSocketHandlers(socket);      // media_state, raise_hand
 });
 
 // ═════════════════════════════════════════════════════════════

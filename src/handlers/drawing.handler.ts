@@ -15,6 +15,24 @@ import type { CustomSocket } from "../types.js";
 import { rooms, ensureRoom, getPage, mergeElements, pageSnapshot, isTeacherSocket } from "../room.js";
 import { broadcastRoomUsers } from "./auth.handler.js";
 
+// Local types for cleaner casting of unknown payloads
+interface StrokeBuffer {
+  points: unknown[];
+  color: string;
+  width: number;
+  page: number;
+}
+interface GenericPayload {
+  id: string;
+  page?: number;
+  [key: string]: unknown;
+}
+interface BoardObject {
+  type: string;
+  payload: GenericPayload;
+  timestamp: number;
+}
+
 // ─── Socket handlers ──────────────────────────────────────────
 
 export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) {
@@ -73,18 +91,19 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
         page: payload.page ?? 0
       });
     } else if (payload.type === "draw") {
-      const buffer = room.strokeBuffers.get(payload.id);
+      const buffer = room.strokeBuffers.get(payload.id) as StrokeBuffer;
       if (buffer) buffer.points.push(payload.point);
     } else if (payload.type === "end") {
       const buffer = room.strokeBuffers.get(payload.id);
       if (buffer) {
+        const b = buffer as StrokeBuffer;
         const fullStroke = {
           id: payload.id,
           type: "full",
-          points: buffer.points,
-          color: buffer.color,
-          width: buffer.width,
-          page: buffer.page
+          points: b.points,
+          color: b.color,
+          width: b.width,
+          page: b.page
         };
         room.boardObjects.push({ type: "stroke", payload: fullStroke, timestamp: Date.now() });
         room.redoObjects = []; // Clear redo stack on new action
@@ -137,7 +156,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
 
     // Persist position/content changes in boardObjects
     const existing = room.boardObjects.find(
-      (o) => o.type === "text" && o.payload.id === payload.id
+      (o) => o.type === "text" && (o.payload as GenericPayload).id === payload.id
     );
     if (existing) {
       if (payload.position) (existing.payload as Record<string, unknown>).position = payload.position;
@@ -187,7 +206,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
 
     // Persist position/size changes in boardObjects
     const existing = room.boardObjects.find(
-      (o) => o.type === "shape" && o.payload.id === payload.id
+      (o) => o.type === "shape" && (o.payload as GenericPayload).id === payload.id
     );
     if (existing) {
       if (payload.position) (existing.payload as Record<string, unknown>).position = payload.position;
@@ -213,7 +232,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
 
     // Persist position/size changes in boardObjects
     const existing = room.boardObjects.find(
-      (o) => o.type === "stroke" && o.payload.id === payload.id
+      (o) => o.type === "stroke" && (o.payload as GenericPayload).id === payload.id
     );
     if (existing) {
       // Store movement offset as position override
@@ -291,7 +310,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     }
 
     // Find and record deletion in history for Undo
-    const index = room.boardObjects.findIndex(o => o.payload.id === payload.id);
+    const index = room.boardObjects.findIndex(o => (o.payload as GenericPayload).id === payload.id);
     if (index !== -1) {
       const obj = room.boardObjects[index];
       // Remove from active objects
@@ -340,7 +359,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
 
     if (lastAction.type === "removal") {
       // Undo-ing a deletion -> Restore at original Z-order index
-      const { original, index } = lastAction.payload;
+      const { original, index } = lastAction.payload as { original: BoardObject; index: number };
       room.boardObjects.splice(index, 0, original);
       room.redoObjects.push(lastAction);
       
@@ -360,7 +379,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       room.redoObjects.push(lastAction);
       io.in(socket.roomId).emit("object_remove", {
         roomId: socket.roomId,
-        payload: { id: lastAction.payload.id }
+        payload: { id: (lastAction.payload as GenericPayload).id }
       });
     }
   });
@@ -377,8 +396,8 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
 
     if (action.type === "removal") {
       // Redo-ing a deletion -> Re-remove
-      const originalId = action.payload.original.payload.id;
-      const index = room.boardObjects.findIndex(o => o.payload.id === originalId);
+      const originalId = (action.payload as { original: BoardObject }).original.payload.id;
+      const index = room.boardObjects.findIndex(o => (o.payload as GenericPayload).id === originalId);
       if (index !== -1) room.boardObjects.splice(index, 1);
       room.boardObjects.push(action);
       io.in(socket.roomId).emit("object_remove", {
@@ -398,7 +417,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       if (event) {
         io.in(socket.roomId).emit(event, {
           roomId: socket.roomId,
-          payload: { ...action.payload, timestamp: Date.now() }
+          payload: { ...(action.payload as GenericPayload), timestamp: Date.now() }
         });
       }
     }
@@ -472,8 +491,6 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (!socket.roomId) return;
     if (!isTeacherSocket(socket)) return;
     
-    const room = ensureRoom(socket.roomId);
-    
     // If a page index was sent, find the page id. 
     // For now we just broadcast the index and color so clients can handle it.
     io.in(socket.roomId).emit("board_color_sync", {
@@ -526,7 +543,9 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     const pageNum = payload.page ?? 0;
     
     // IMPORTANT: Filter out removal actions for new joiners
-    const objects = room.boardObjects.filter(obj => obj.type !== "removal" && obj.payload.page === pageNum);
+    const objects = room.boardObjects.filter(obj => 
+      obj.type !== "removal" && (obj.payload as GenericPayload).page === pageNum
+    );
     if (objects.length > 0) {
       socket.emit("board_objects_state", { roomId: socket.roomId, payload: objects });
     }
