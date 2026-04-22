@@ -20,7 +20,7 @@
  */
 
 import express from "express";
-import http from "http";
+import https from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import bodyParser from "body-parser";
@@ -50,7 +50,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const server = http.createServer(app);
+const server = https.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
   maxHttpBufferSize: 5 * 1024 * 1024,
@@ -90,4 +90,4 @@ startBackgroundJobs();
 process.on("SIGTERM", () => shutdown(server));
 process.on("SIGINT",  () => shutdown(server));
 
-server.listen(CFG.PORT, "0.0.0.0", () => log.info(`Running on port ${CFG.PORT}`));
+server.listen(CFG.PORT, "127.0.0.1", () => log.info(`Running on port ${CFG.PORT}`));

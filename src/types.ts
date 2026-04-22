@@ -120,6 +120,8 @@ export interface Room {
   boardCountSinceLastSync: number;
   nextAllowedSyncTime: number;
   syncErrorCount: number;
+  isLocked:true;
+  isFrozen:true;
   // board files (in-memory, like chat)
   boardFiles:         BoardFile[];
   cleanupTimer:       NodeJS.Timeout | null;

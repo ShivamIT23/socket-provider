@@ -33,6 +33,8 @@ export function ensureRoom(roomId: string): Room {
       participants: new Map(),
       chat: [],
       mutedUserIds: new Set(),
+      isFrozen:true,
+      isLocked:true,
       textDisabledUserIds: new Set(),
       textEnabledUserIds: new Set(),
       attachmentsDisabledUserIds: new Set(),
