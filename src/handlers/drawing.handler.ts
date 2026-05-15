@@ -521,6 +521,20 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     });
   });
 
+  // ── Duration extend (teacher only) ──────────────────────────
+  socket.on("duration_extend", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    const { addedMinutes } = payload;
+    if (!addedMinutes || typeof addedMinutes !== "number" || addedMinutes <= 0) return;
+
+    // Broadcast to everyone in the room (including sender)
+    io.in(socket.roomId).emit("duration_extended", {
+      roomId: socket.roomId,
+      payload: { addedMinutes },
+    });
+  });
+
   // ── View Sync (teacher + drawing-enabled students) ─────────────
   socket.on("view_sync", ({ payload }) => {
     if (!socket.roomId) return;
