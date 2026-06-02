@@ -41,6 +41,45 @@ export function registerVideoSocketHandlers(socket: CustomSocket) {
       payload: { userId: socket.userId, name: socket.user?.name },
     });
   });
+
+  // ── YouTube Video Sync ──────────────────────────────────────
+  socket.on("yt_sync", ({ roomId, payload }) => {
+    const targetRoomId = roomId || socket.roomId;
+    if (!targetRoomId || !socket.userId) return;
+    const room = rooms.get(targetRoomId);
+    if (!room) return;
+
+    const isTeacher = socket.user?.isTeacher || room.ownerUserId === socket.userId;
+    if (!isTeacher) return;
+
+    room.youtubeState = {
+      videoId: payload.videoId,
+      playStatus: payload.playStatus,
+      currentTime: payload.currentTime,
+      lastUpdated: Date.now(),
+    };
+
+    socket.to(targetRoomId).emit("yt_sync", {
+      roomId: targetRoomId,
+      payload: room.youtubeState,
+    });
+  });
+
+  socket.on("yt_close", ({ roomId }) => {
+    const targetRoomId = roomId || socket.roomId;
+    if (!targetRoomId || !socket.userId) return;
+    const room = rooms.get(targetRoomId);
+    if (!room) return;
+
+    const isTeacher = socket.user?.isTeacher || room.ownerUserId === socket.userId;
+    if (!isTeacher) return;
+
+    delete room.youtubeState;
+
+    socket.to(targetRoomId).emit("yt_close", {
+      roomId: targetRoomId,
+    });
+  });
 }
 
 // ─── REST routes ──────────────────────────────────────────────

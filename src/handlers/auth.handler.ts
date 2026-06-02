@@ -53,6 +53,7 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
         return {
           user_id: p.user.id,
           username: p.user.name,
+          visitor_id: p.user.visitorId,
           socket_id: p.socketId,
           isMuted: room.mutedUserIds.has(p.user.id),
           textEnabled: textAllowed,
@@ -61,6 +62,7 @@ async function broadcastRoomUsers(roomId: string, io: Server) {
           mediaState: p.mediaState,
           role: p.user.id === room.ownerUserId ? "teacher" : "student",
           isTeacher: p.user.id === room.ownerUserId,
+          approvalStatus: p.approvalStatus,
         };
       }),
     },
@@ -82,39 +84,44 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     socket.user = payload?.user ?? { id: socket.id, name: "Unknown", isTeacher: false };
     if (!socket.user!.id) socket.user!.id = socket.id;
 
-    // ── Verify against main backend ───────────────────────────
     try {
-      const cookies = socket.handshake.headers.cookie
-        ? cookie.parse(socket.handshake.headers.cookie) : {};
-      const token = cookies.token ?? cookies.accessToken ?? payload?.token;
+      const cookies = socket.handshake.headers.cookie ? cookie.parse(socket.handshake.headers.cookie) : {};
+      const token = cookies.token ?? cookies.accessToken ?? (payload as { token?: string })?.token;
+      const currentVisitorId = socket.user?.visitorId;
+      
       const resp = await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/verify`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "x-internal-secret": CFG.INTERNAL_SECRET
         },
-        body: JSON.stringify({ sessionId: roomId, token }),
+        body: JSON.stringify({ sessionId: roomId, token, visitorId: currentVisitorId }),
       });
+
       if (resp.status === 403) {
         socket.emit("error", { message: "This class has already ended." });
         socket.disconnect();
         return;
       }
+
       if (resp.ok) {
-        
-        const u = await resp.json() as AuthUser;
-        // The API returns the user object directly now
+        const u = await resp.json() as AuthUser & { approvalStatus?: 'pending' | 'approved' | 'rejected', isAutoApprove?: boolean, maxStudents?: number };
         if (u && u.id) {
-          const currentVisitorId = socket.user?.visitorId;
           socket.user = {
             id: u.id, 
             name: u.name || socket.user?.name || "Verified User", 
             isTeacher: u.role === 'teacher' || !!u.isTeacher,
             isCounsellor: u.isCounsellor, 
             usertype: u.usertype,
-            visitorId: currentVisitorId, // Always preserve the visitorId from frontend
+            visitorId: currentVisitorId, 
+            approvalStatus: u.approvalStatus || 'approved'
           };
-          log.info(`Verified user: ${socket.user?.name} (visitorId: ${socket.user?.visitorId})`);
+
+          const room = ensureRoom(roomId);
+          if (u.isAutoApprove !== undefined) room.settings.isAutoApprove = u.isAutoApprove;
+          if (u.maxStudents !== undefined) room.settings.maxStudents = u.maxStudents;
+
+          log.info(`Verified user: ${socket.user?.name} Status: ${socket.user?.approvalStatus}`);
         }
       }
     } catch (e: unknown) {
@@ -180,6 +187,7 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
       user: socket.user!, socketId: socket.id,
       mediaState: { audio: false, video: false }, pointer: null,
       joinedAt: Date.now(),
+      approvalStatus: socket.user!.approvalStatus || 'approved'
     });
 
     // ── DB PRESENCE UPDATE (isActive = 1) ─────────────────────
@@ -268,6 +276,102 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
           remainingSeconds: secs,
         },
       });
+    }
+
+    // YouTube state sync for newcomers
+    if (room.youtubeState) {
+      socket.emit("yt_sync", {
+        roomId,
+        payload: room.youtubeState,
+      });
+    }
+  });
+
+  // ── Moderation: Approve Student ─────────────────────────────
+  socket.on("board_approve_student", async ({ visitorId, userId: targetUserId }) => {
+    if (!socket.roomId || !socket.user?.isTeacher) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+
+    try {
+      const resp = await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal-secret": CFG.INTERNAL_SECRET },
+        body: JSON.stringify({ visitorId, status: "approved" }),
+      });
+
+      const data = await resp.json() as { success?: boolean; error?: string };
+      
+      if (!resp.ok) {
+        socket.emit("error", { message: data.error || "Approval failed" });
+        return;
+      }
+
+      // Update participant status in RAM
+      const targetSockets = Array.from(io.sockets.sockets.values())
+        .filter(s => (s as CustomSocket).userId === targetUserId && (s as CustomSocket).roomId === socket.roomId);
+      
+      for (const ts of targetSockets) {
+        const cs = ts as CustomSocket;
+        if (cs.user) {
+          cs.user.approvalStatus = 'approved';
+          const part = room.participants.get(ts.id);
+          if (part) part.approvalStatus = 'approved';
+          ts.emit("approved", { message: "You have been approved by the teacher." });
+        }
+      }
+      
+      broadcastRoomUsers(socket.roomId, io);
+    } catch (e) {
+      log.error("Approval failed:", e);
+      socket.emit("error", { message: "Server communication error during approval" });
+    }
+  });
+
+  // ── Moderation: Reject Student ─────────────────────────────
+  socket.on("board_reject_student", async ({ visitorId, userId: targetUserId }) => {
+    if (!socket.roomId || !socket.user?.isTeacher) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+
+    try {
+      await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal-secret": CFG.INTERNAL_SECRET },
+        body: JSON.stringify({ visitorId, status: "rejected" }),
+      });
+
+      const targetSockets = Array.from(io.sockets.sockets.values())
+        .filter(s => (s as CustomSocket).userId === targetUserId && (s as CustomSocket).roomId === socket.roomId);
+      
+      for (const ts of targetSockets) {
+        ts.emit("rejected", { message: "Your request to join was declined by the teacher." });
+        ts.disconnect(true);
+      }
+      
+      broadcastRoomUsers(socket.roomId, io);
+    } catch (e) {
+      log.error("Rejection failed:", e);
+    }
+  });
+
+  // ── Moderation: Toggle Auto Approve ─────────────────────────
+  socket.on("board_toggle_auto_approve", async ({ isAutoApprove }) => {
+    if (!socket.roomId || !socket.user?.isTeacher) return;
+    const room = rooms.get(socket.roomId);
+    if (!room) return;
+
+    try {
+      await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/auto-approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal-secret": CFG.INTERNAL_SECRET },
+        body: JSON.stringify({ sessionId: socket.roomId, isAutoApprove }),
+      });
+
+      room.settings.isAutoApprove = isAutoApprove;
+      io.to(socket.roomId).emit("chat_state", { roomId: socket.roomId, payload: { settings: room.settings } });
+    } catch (e) {
+      log.error("Toggle auto-approve failed:", e);
     }
   });
 

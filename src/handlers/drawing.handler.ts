@@ -14,6 +14,7 @@ import type { Application } from "express";
 import type { CustomSocket } from "../types.js";
 import { rooms, ensureRoom, getPage, mergeElements, pageSnapshot, isTeacherSocket } from "../room.js";
 import { broadcastRoomUsers } from "./auth.handler.js";
+import { CFG, log } from "../config.js";
 
 // Local types for cleaner casting of unknown payloads
 interface StrokeBuffer {
@@ -284,6 +285,60 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       roomId: socket.roomId,
       payload: { isLocked: !!payload.enabled },
     });
+  });
+
+  // ── Kick User (teacher only) ────────────────────────────────
+  socket.on("board_kick_user", async ({ payload }) => {
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    const { visitorId, userId: targetUserId } = payload;
+    
+    try {
+      await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/ban`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId, type: "kick", userId: socket.userId }),
+      });
+      
+      // Find the socket of the target user and disconnect them
+      const targetSockets = Array.from(io.sockets.sockets.values())
+        .filter(s => (s as CustomSocket).userId === targetUserId && (s as CustomSocket).roomId === socket.roomId);
+      
+      for (const ts of targetSockets) {
+        ts.emit("kicked", { message: "You have been kicked out of this classroom." });
+        ts.disconnect(true);
+      }
+      
+      broadcastRoomUsers(socket.roomId, io);
+    } catch (e) {
+      log.error("Kick failed:", e);
+    }
+  });
+
+  // ── Ban User (teacher only) ─────────────────────────────────
+  socket.on("board_ban_user", async ({ payload }) => {
+    if (!socket.roomId || !isTeacherSocket(socket)) return;
+    const { visitorId, userId: targetUserId } = payload;
+    
+    try {
+      await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/ban`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId, type: "ban", userId: socket.userId }),
+      });
+      
+      // Find ALL sockets of the target user and disconnect them
+      const targetSockets = Array.from(io.sockets.sockets.values())
+        .filter(s => (s as CustomSocket).userId === targetUserId);
+      
+      for (const ts of targetSockets) {
+        ts.emit("banned", { message: "You have been permanently banned by this teacher." });
+        ts.disconnect(true);
+      }
+      
+      broadcastRoomUsers(socket.roomId, io);
+    } catch (e) {
+      log.error("Ban failed:", e);
+    }
   });
 
   // ── Laser pointer relay ─────────────────────────────────────

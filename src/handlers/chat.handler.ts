@@ -64,7 +64,11 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
 
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
-      user: { name: socket.user!.name, isTeacher: !!socket.user!.isTeacher },
+      user: { 
+        name: socket.user!.name, 
+        isTeacher: !!socket.user!.isTeacher,
+        visitorId: socket.user!.visitorId 
+      },
       message: String(payload.message).slice(0, 2000),
       attachments: payload.attachments, // future support for photos/files
       timestamp: now,

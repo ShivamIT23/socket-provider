@@ -48,6 +48,8 @@ export function ensureRoom(roomId: string): Room {
         drawingEnabled: true,
         videoEnabled: true,
         screenShareLimit: 4,
+        isAutoApprove: true,
+        maxStudents: 10,
       },
       isViewportSynced: false, isViewportLocked: false, lastViewport: null,
       duration: null, startTime: null, timerStarted: false, timerInterval: null,

@@ -90,6 +90,7 @@ export function startBackgroundJobs() {
   }, CFG.GC_INTERVAL_MS);
 }
 
+
 export function stopBackgroundJobs() {
   clearInterval(syncJob);
   clearInterval(gcJob);

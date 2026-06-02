@@ -15,6 +15,7 @@ export interface User {
   isCounsellor?: boolean | undefined;
   usertype?: string | undefined;
   visitorId?: number | undefined;
+  approvalStatus?: 'pending' | 'approved' | 'rejected' | undefined;
 }
 
 export interface Participant {
@@ -23,6 +24,7 @@ export interface Participant {
   mediaState: { audio: boolean; video: boolean };
   pointer: { x: number; y: number; tool?: string } | null;
   joinedAt: number;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
 }
 
 // ─── Excalidraw ───────────────────────────────────────────────
@@ -59,7 +61,7 @@ export interface Attachment {
 
 export interface ChatMessage {
   id: string;
-  user: { name: string; isTeacher: boolean };
+  user: { name: string; isTeacher: boolean; visitorId?: number | undefined };
   message: string;
   attachments?: Attachment[];
   timestamp: number;
@@ -91,6 +93,8 @@ export interface Room {
     drawingEnabled:   boolean;
     videoEnabled:     boolean;
     screenShareLimit: number;
+    isAutoApprove:    boolean;
+    maxStudents:      number;
   };
   mutedUserIds:       Set<string>;
   textDisabledUserIds: Set<string>;
@@ -129,6 +133,12 @@ export interface Room {
   // board files (in-memory, like chat)
   boardFiles:         BoardFile[];
   cleanupTimer:       NodeJS.Timeout | null;
+  youtubeState?: {
+    videoId: string;
+    playStatus: "playing" | "paused";
+    currentTime: number;
+    lastUpdated: number;
+  };
 }
 
 // ─── Custom Socket ────────────────────────────────────────────
