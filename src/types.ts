@@ -73,6 +73,8 @@ export interface BoardFile {
   name: string;
   position: { x: number; y: number };  // normalized 0-1
   scale: number;     // normalized relative to canvas width
+  widthRatio?: number;
+  heightRatio?: number;
   addedBy: string;   // user name
   timestamp: number;
 }

@@ -380,6 +380,13 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       room.isDirty = true;
     }
 
+    // Also remove from boardFiles if it's an image
+    const fileIndex = room.boardFiles.findIndex(f => f.id === payload.id);
+    if (fileIndex !== -1) {
+      room.boardFiles.splice(fileIndex, 1);
+      room.isDirty = true;
+    }
+
     // Broadcast the removal to others
     socket.to(socket.roomId).emit("object_remove", {
       roomId: socket.roomId,
@@ -490,6 +497,8 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       name: payload.name,
       position: payload.position || { x: 0.5, y: 0.5 },
       scale: payload.scale || 0.3,
+      widthRatio: payload.widthRatio,
+      heightRatio: payload.heightRatio,
       addedBy: socket.user?.name || "Teacher",
       timestamp: Date.now(),
     };
@@ -500,7 +509,7 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
       room.boardFiles.splice(0, room.boardFiles.length - 20);
     }
 
-    io.in(socket.roomId).emit("board_file_add", {
+    socket.to(socket.roomId).emit("board_file_add", {
       roomId: socket.roomId,
       payload: boardFile,
     });
@@ -532,6 +541,8 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     if (file) {
       if (payload.position) file.position = payload.position;
       if (payload.scale) file.scale = payload.scale;
+      if (payload.widthRatio !== undefined) file.widthRatio = payload.widthRatio;
+      if (payload.heightRatio !== undefined) file.heightRatio = payload.heightRatio;
       console.log(`[board_file_update] Updated file ${payload.id} in memory.`);
     }
 
