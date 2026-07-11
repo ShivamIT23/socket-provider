@@ -225,7 +225,10 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
     // Chat state & local history (cached in RAM)
     socket.emit("chat_state", { roomId, payload: { settings: room.settings } });
     if (room.chat.length > 0) {
-      socket.emit("chat_history", { roomId, payload: room.chat });
+      const filteredHistory = socket.user?.isTeacher
+        ? room.chat
+        : room.chat.filter(m => !m.recipient || m.recipient === "everyone" || m.senderId === socket.userId || m.user?.id === socket.userId);
+      socket.emit("chat_history", { roomId, payload: filteredHistory });
     }
     if (room.mutedUserIds.has(socket.userId!))
       socket.emit("user_muted_status", { roomId, payload: { isMuted: true } });
@@ -283,6 +286,23 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
       socket.emit("yt_sync", {
         roomId,
         payload: room.youtubeState,
+      });
+    }
+
+    // Poll state sync for newcomers
+    if (room.currentPoll || (room.pollsHistory && room.pollsHistory.length > 0)) {
+      socket.emit("poll_update", {
+        roomId,
+        payload: room.currentPoll || null,
+        pollsHistory: room.pollsHistory || [],
+      });
+    }
+
+    // Quiz state sync for newcomers
+    if (room.currentQuiz) {
+      socket.emit("quiz_update", {
+        roomId,
+        payload: room.currentQuiz,
       });
     }
   });

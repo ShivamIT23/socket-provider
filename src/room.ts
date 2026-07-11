@@ -32,6 +32,7 @@ export function ensureRoom(roomId: string): Room {
       pages: [page], currentPageId: page.id,
       participants: new Map(),
       chat: [],
+      pollsHistory: [],
       mutedUserIds: new Set(),
       isFrozen:true,
       isLocked:true,

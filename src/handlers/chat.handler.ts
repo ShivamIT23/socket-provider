@@ -62,13 +62,17 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
       return;
     }
 
+    const targetRecipient = payload.recipient === "teacher" ? "teacher" : "everyone";
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
       user: { 
         name: socket.user!.name, 
         isTeacher: !!socket.user!.isTeacher,
-        visitorId: socket.user!.visitorId 
+        visitorId: socket.user!.visitorId,
+        id: socket.user!.id
       },
+      senderId: socket.userId,
+      recipient: targetRecipient,
       message: String(payload.message).slice(0, 2000),
       attachments: payload.attachments, // future support for photos/files
       timestamp: now,
@@ -86,7 +90,16 @@ export function registerChatSocketHandlers(socket: CustomSocket, io: Server) {
       import("../services/sync.service.js").then(m => m.saveRoomStateToBackend(room.id));
     }
 
-    io.to(socket.roomId).emit("chat", { roomId: socket.roomId, payload: msg });
+    if (targetRecipient === "teacher") {
+      const roomSockets = await io.in(socket.roomId).fetchSockets() as unknown as CustomSocket[];
+      for (const s of roomSockets) {
+        if (isTeacherSocket(s) || s.userId === socket.userId) {
+          s.emit("chat", { roomId: socket.roomId, payload: msg });
+        }
+      }
+    } else {
+      io.to(socket.roomId).emit("chat", { roomId: socket.roomId, payload: msg });
+    }
   });
 
   // ── Delete message (teacher only) ───────────────────────────

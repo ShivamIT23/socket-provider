@@ -61,10 +61,57 @@ export interface Attachment {
 
 export interface ChatMessage {
   id: string;
-  user: { name: string; isTeacher: boolean; visitorId?: number | undefined };
+  user: { name: string; isTeacher: boolean; visitorId?: number | undefined; id?: string };
+  senderId?: string;
+  recipient?: "everyone" | "teacher";
   message: string;
   attachments?: Attachment[];
+  pollResults?: {
+    question: string;
+    options: { text: string; votesCount: number }[];
+    totalVotes: number;
+  };
+  quizShare?: {
+    shareToken: string;
+    quizTitle: string;
+  };
   timestamp: number;
+}
+
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: string[]; // array of userIds or visitorIds
+}
+
+export interface Poll {
+  id: string;
+  question: string;
+  options: PollOption[];
+  isActive: boolean;
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface QuizOption {
+  id: string;
+  text: string;
+  votes: string[]; // userIds or visitorIds
+}
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: QuizOption[];
+  correctOption: number; // 0-based index
+}
+
+export interface QuizState {
+  id: string;
+  questions: QuizQuestion[];
+  isActive: boolean;
+  createdAt: number;
+  submittedUsers: string[];
 }
 
 export interface BoardFile {
@@ -88,6 +135,9 @@ export interface Room {
   currentPageId:      string | null;
   participants:       Map<string, Participant>;
   chat:               ChatMessage[];
+  currentPoll?:       Poll | null;
+  pollsHistory?:      Poll[];
+  currentQuiz?:       QuizState | null;
   // feature toggles
   settings: {
     chatEnabled:      boolean;

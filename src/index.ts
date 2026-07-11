@@ -41,6 +41,8 @@ import { registerDrawingSocketHandlers, registerDrawingRoutes }   from "./handle
 import { registerViewportSocketHandlers, registerViewportRoutes } from "./handlers/viewport.handler.js";
 import { registerControlsRoutes }                                  from "./handlers/controls.handler.js";
 import { registerVideoSocketHandlers, registerVideoRoutes }       from "./handlers/video.handler.js";
+import { registerPollSocketHandlers }                               from "./handlers/poll.handler.js";
+import { registerQuizSocketHandlers }                               from "./handlers/quiz.handler.js";
 
 // ═════════════════════════════════════════════════════════════
 // 1. Express + HTTP + Socket.IO
@@ -78,7 +80,9 @@ io.on("connection", (socket: CustomSocket) => {
   registerChatSocketHandlers(socket, io);       // chat, mute, typing
   registerDrawingSocketHandlers(socket, io);    // elements_update, pointer
   registerViewportSocketHandlers(socket, io);   // viewport sync/lock/fit
-  registerVideoSocketHandlers(socket);      // media_state, raise_hand
+  registerVideoSocketHandlers(socket);          // media_state, raise_hand
+  registerPollSocketHandlers(socket, io);        // poll create, vote, end, delete
+  registerQuizSocketHandlers(socket, io);        // quiz create, submit, end, delete
 });
 
 // ═════════════════════════════════════════════════════════════
