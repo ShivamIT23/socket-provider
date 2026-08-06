@@ -73,11 +73,15 @@ export function registerControlsRoutes(app, io) {
         catch (e) {
             log.error(`Failed to notify main backend of session end for ${roomId}:`, e);
         }
-        io.to(roomId).emit("session_ended", { roomId });
-        io.in(roomId).disconnectSockets(true);
-        stopRoomTimer(roomId);
-        await saveRoomStateToBackend(roomId);
-        rooms.delete(roomId);
+        const endedAt = Date.now();
+        io.to(roomId).emit("session_ended", { roomId, endedAt });
+        // Give a small delay for the message to propagate before disconnecting
+        setTimeout(async () => {
+            io.in(roomId).disconnectSockets(true);
+            stopRoomTimer(roomId);
+            await saveRoomStateToBackend(roomId);
+            rooms.delete(roomId);
+        }, 500);
         res.json({ ok: true });
     });
     // ── Duration ────────────────────────────────────────────────

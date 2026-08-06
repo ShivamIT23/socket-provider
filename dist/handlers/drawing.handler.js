@@ -10,6 +10,7 @@
  */
 import { rooms, ensureRoom, getPage, mergeElements, pageSnapshot, isTeacherSocket } from "../room.js";
 import { broadcastRoomUsers } from "./auth.handler.js";
+import { CFG, log } from "../config.js";
 // ─── Socket handlers ──────────────────────────────────────────
 export function registerDrawingSocketHandlers(socket, io) {
     // ── Excalidraw element delta sync ───────────────────────────
@@ -269,6 +270,54 @@ export function registerDrawingSocketHandlers(socket, io) {
             payload: { isLocked: !!payload.enabled },
         });
     });
+    // ── Kick User (teacher only) ────────────────────────────────
+    socket.on("board_kick_user", async ({ payload }) => {
+        if (!socket.roomId || !isTeacherSocket(socket))
+            return;
+        const { visitorId, userId: targetUserId } = payload;
+        try {
+            await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/ban`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ visitorId, type: "kick", userId: socket.userId }),
+            });
+            // Find the socket of the target user and disconnect them
+            const targetSockets = Array.from(io.sockets.sockets.values())
+                .filter(s => s.userId === targetUserId && s.roomId === socket.roomId);
+            for (const ts of targetSockets) {
+                ts.emit("kicked", { message: "You have been kicked out of this classroom." });
+                ts.disconnect(true);
+            }
+            broadcastRoomUsers(socket.roomId, io);
+        }
+        catch (e) {
+            log.error("Kick failed:", e);
+        }
+    });
+    // ── Ban User (teacher only) ─────────────────────────────────
+    socket.on("board_ban_user", async ({ payload }) => {
+        if (!socket.roomId || !isTeacherSocket(socket))
+            return;
+        const { visitorId, userId: targetUserId } = payload;
+        try {
+            await fetch(`${CFG.MAIN_BACKEND_URL}/api/v1/session/visitors/ban`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ visitorId, type: "ban", userId: socket.userId }),
+            });
+            // Find ALL sockets of the target user and disconnect them
+            const targetSockets = Array.from(io.sockets.sockets.values())
+                .filter(s => s.userId === targetUserId);
+            for (const ts of targetSockets) {
+                ts.emit("banned", { message: "You have been permanently banned by this teacher." });
+                ts.disconnect(true);
+            }
+            broadcastRoomUsers(socket.roomId, io);
+        }
+        catch (e) {
+            log.error("Ban failed:", e);
+        }
+    });
     // ── Laser pointer relay ─────────────────────────────────────
     socket.on("laser_pointer", ({ payload }) => {
         if (!socket.roomId)
@@ -306,6 +355,12 @@ export function registerDrawingSocketHandlers(socket, io) {
                 timestamp: Date.now()
             });
             room.redoObjects = [];
+            room.isDirty = true;
+        }
+        // Also remove from boardFiles if it's an image
+        const fileIndex = room.boardFiles.findIndex(f => f.id === payload.id);
+        if (fileIndex !== -1) {
+            room.boardFiles.splice(fileIndex, 1);
             room.isDirty = true;
         }
         // Broadcast the removal to others
@@ -426,6 +481,8 @@ export function registerDrawingSocketHandlers(socket, io) {
             name: payload.name,
             position: payload.position || { x: 0.5, y: 0.5 },
             scale: payload.scale || 0.3,
+            widthRatio: payload.widthRatio,
+            heightRatio: payload.heightRatio,
             addedBy: socket.user?.name || "Teacher",
             timestamp: Date.now(),
         };
@@ -434,7 +491,7 @@ export function registerDrawingSocketHandlers(socket, io) {
         if (room.boardFiles.length > 20) {
             room.boardFiles.splice(0, room.boardFiles.length - 20);
         }
-        io.in(socket.roomId).emit("board_file_add", {
+        socket.to(socket.roomId).emit("board_file_add", {
             roomId: socket.roomId,
             payload: boardFile,
         });
@@ -466,6 +523,10 @@ export function registerDrawingSocketHandlers(socket, io) {
                 file.position = payload.position;
             if (payload.scale)
                 file.scale = payload.scale;
+            if (payload.widthRatio !== undefined)
+                file.widthRatio = payload.widthRatio;
+            if (payload.heightRatio !== undefined)
+                file.heightRatio = payload.heightRatio;
             console.log(`[board_file_update] Updated file ${payload.id} in memory.`);
         }
         socket.to(socket.roomId).emit("board_file_update", {
@@ -503,6 +564,21 @@ export function registerDrawingSocketHandlers(socket, io) {
         socket.to(socket.roomId).emit("page_update", {
             roomId: socket.roomId,
             payload,
+        });
+    });
+    // ── Duration extend (teacher only) ──────────────────────────
+    socket.on("duration_extend", ({ payload }) => {
+        if (!socket.roomId)
+            return;
+        if (!isTeacherSocket(socket))
+            return;
+        const { addedMinutes } = payload;
+        if (!addedMinutes || typeof addedMinutes !== "number" || addedMinutes <= 0)
+            return;
+        // Broadcast to everyone in the room (including sender)
+        io.in(socket.roomId).emit("duration_extended", {
+            roomId: socket.roomId,
+            payload: { addedMinutes },
         });
     });
     // ── View Sync (teacher + drawing-enabled students) ─────────────

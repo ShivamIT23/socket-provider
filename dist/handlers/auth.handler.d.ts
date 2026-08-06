@@ -17,6 +17,7 @@ declare function broadcastRoomUsers(roomId: string, io: Server): Promise<{
         users: {
             user_id: string;
             username: string;
+            visitor_id: number | undefined;
             socket_id: string;
             isMuted: boolean;
             textEnabled: boolean;
@@ -28,6 +29,7 @@ declare function broadcastRoomUsers(roomId: string, io: Server): Promise<{
             };
             role: string;
             isTeacher: boolean;
+            approvalStatus: "pending" | "approved" | "rejected";
         }[];
     };
 } | undefined>;

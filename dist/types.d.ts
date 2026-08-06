@@ -11,6 +11,7 @@ export interface User {
     isCounsellor?: boolean | undefined;
     usertype?: string | undefined;
     visitorId?: number | undefined;
+    approvalStatus?: 'pending' | 'approved' | 'rejected' | undefined;
 }
 export interface Participant {
     user: User;
@@ -25,6 +26,7 @@ export interface Participant {
         tool?: string;
     } | null;
     joinedAt: number;
+    approvalStatus: 'pending' | 'approved' | 'rejected';
 }
 export interface ExcalidrawElement {
     id: string;
@@ -57,10 +59,57 @@ export interface ChatMessage {
     user: {
         name: string;
         isTeacher: boolean;
+        visitorId?: number | undefined;
+        id?: string;
     };
+    senderId?: string;
+    recipient?: "everyone" | "teacher";
     message: string;
     attachments?: Attachment[];
+    pollResults?: {
+        question: string;
+        options: {
+            text: string;
+            votesCount: number;
+        }[];
+        totalVotes: number;
+    };
+    quizShare?: {
+        shareToken: string;
+        quizTitle: string;
+    };
     timestamp: number;
+}
+export interface PollOption {
+    id: string;
+    text: string;
+    votes: string[];
+}
+export interface Poll {
+    id: string;
+    question: string;
+    options: PollOption[];
+    isActive: boolean;
+    createdAt: number;
+    createdBy: string;
+}
+export interface QuizOption {
+    id: string;
+    text: string;
+    votes: string[];
+}
+export interface QuizQuestion {
+    id: string;
+    question: string;
+    options: QuizOption[];
+    correctOption: number;
+}
+export interface QuizState {
+    id: string;
+    questions: QuizQuestion[];
+    isActive: boolean;
+    createdAt: number;
+    submittedUsers: string[];
 }
 export interface BoardFile {
     id: string;
@@ -71,6 +120,8 @@ export interface BoardFile {
         y: number;
     };
     scale: number;
+    widthRatio?: number;
+    heightRatio?: number;
     addedBy: string;
     timestamp: number;
 }
@@ -83,12 +134,17 @@ export interface Room {
     currentPageId: string | null;
     participants: Map<string, Participant>;
     chat: ChatMessage[];
+    currentPoll?: Poll | null;
+    pollsHistory?: Poll[];
+    currentQuiz?: QuizState | null;
     settings: {
         chatEnabled: boolean;
         attachmentsEnabled: boolean;
         drawingEnabled: boolean;
         videoEnabled: boolean;
         screenShareLimit: number;
+        isAutoApprove: boolean;
+        maxStudents: number;
     };
     mutedUserIds: Set<string>;
     textDisabledUserIds: Set<string>;
@@ -127,6 +183,12 @@ export interface Room {
     isFrozen: true;
     boardFiles: BoardFile[];
     cleanupTimer: NodeJS.Timeout | null;
+    youtubeState?: {
+        videoId: string;
+        playStatus: "playing" | "paused";
+        currentTime: number;
+        lastUpdated: number;
+    };
 }
 export interface CustomSocket extends Socket {
     roomId?: string;

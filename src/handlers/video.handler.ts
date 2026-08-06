@@ -94,19 +94,23 @@ export function registerVideoRoutes(app: Application) {
       return res.status(503).json({ error: "LiveKit not configured" });
     }
 
+    console.log(`[LiveKit Token] Generating token using API_KEY: ${CFG.LIVEKIT_API_KEY}`);
+
     const at = new AccessToken(CFG.LIVEKIT_API_KEY, CFG.LIVEKIT_API_SECRET, {
       identity: userId,
       name: userName,
       ttl: "4h",
     });
 
+    const isTeacherRole = Boolean(isTeacher);
+
     at.addGrant({
       room: roomId,
       roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: false,
-      roomAdmin: !!isTeacher,
+      canPublish: isTeacherRole,      // ONLY Teacher can publish audio + video tracks
+      canSubscribe: true,            // Everyone can subscribe/receive tracks
+      canPublishData: isTeacherRole,
+      roomAdmin: isTeacherRole,
     });
 
     res.json({ token: await at.toJwt(), wsUrl: CFG.LIVEKIT_WS_URL });

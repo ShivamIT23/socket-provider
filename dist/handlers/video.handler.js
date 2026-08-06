@@ -37,6 +37,43 @@ export function registerVideoSocketHandlers(socket) {
             payload: { userId: socket.userId, name: socket.user?.name },
         });
     });
+    // ── YouTube Video Sync ──────────────────────────────────────
+    socket.on("yt_sync", ({ roomId, payload }) => {
+        const targetRoomId = roomId || socket.roomId;
+        if (!targetRoomId || !socket.userId)
+            return;
+        const room = rooms.get(targetRoomId);
+        if (!room)
+            return;
+        const isTeacher = socket.user?.isTeacher || room.ownerUserId === socket.userId;
+        if (!isTeacher)
+            return;
+        room.youtubeState = {
+            videoId: payload.videoId,
+            playStatus: payload.playStatus,
+            currentTime: payload.currentTime,
+            lastUpdated: Date.now(),
+        };
+        socket.to(targetRoomId).emit("yt_sync", {
+            roomId: targetRoomId,
+            payload: room.youtubeState,
+        });
+    });
+    socket.on("yt_close", ({ roomId }) => {
+        const targetRoomId = roomId || socket.roomId;
+        if (!targetRoomId || !socket.userId)
+            return;
+        const room = rooms.get(targetRoomId);
+        if (!room)
+            return;
+        const isTeacher = socket.user?.isTeacher || room.ownerUserId === socket.userId;
+        if (!isTeacher)
+            return;
+        delete room.youtubeState;
+        socket.to(targetRoomId).emit("yt_close", {
+            roomId: targetRoomId,
+        });
+    });
 }
 // ─── REST routes ──────────────────────────────────────────────
 export function registerVideoRoutes(app) {
@@ -48,18 +85,20 @@ export function registerVideoRoutes(app) {
         if (!CFG.LIVEKIT_API_KEY || !CFG.LIVEKIT_API_SECRET) {
             return res.status(503).json({ error: "LiveKit not configured" });
         }
+        console.log(`[LiveKit Token] Generating token using API_KEY: ${CFG.LIVEKIT_API_KEY}`);
         const at = new AccessToken(CFG.LIVEKIT_API_KEY, CFG.LIVEKIT_API_SECRET, {
             identity: userId,
             name: userName,
             ttl: "4h",
         });
+        const isTeacherRole = Boolean(isTeacher);
         at.addGrant({
             room: roomId,
             roomJoin: true,
-            canPublish: true,
-            canSubscribe: true,
-            canPublishData: false,
-            roomAdmin: !!isTeacher,
+            canPublish: isTeacherRole, // ONLY Teacher can publish audio + video tracks
+            canSubscribe: true, // Everyone can subscribe/receive tracks
+            canPublishData: isTeacherRole,
+            roomAdmin: isTeacherRole,
         });
         res.json({ token: await at.toJwt(), wsUrl: CFG.LIVEKIT_WS_URL });
     });
