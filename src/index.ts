@@ -49,8 +49,15 @@ import { registerQuizSocketHandlers }                               from "./hand
 // ═════════════════════════════════════════════════════════════
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-internal-secret", "X-Requested-With"],
+}));
+app.options("*", cors());
 app.use(bodyParser.json());
+
 
 const server = https.createServer(app);
 const io = new Server(server, {
