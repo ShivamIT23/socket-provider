@@ -267,6 +267,16 @@ export function registerDrawingSocketHandlers(socket: CustomSocket, io: Server) 
     });
   });
 
+  // ── Video toggle expand sync (teacher only) ────────────────
+  socket.on("video_toggle_expand", ({ payload }) => {
+    if (!socket.roomId) return;
+    if (!isTeacherSocket(socket)) return;
+    io.in(socket.roomId).emit("video_toggle_expand", {
+      roomId: socket.roomId,
+      payload: { expanded: !!payload?.expanded },
+    });
+  });
+
   // ── Laser pointer relay ─────────────────────────────────────
   socket.on("laser_pointer", ({ payload }) => {
     if (!socket.roomId) return;
