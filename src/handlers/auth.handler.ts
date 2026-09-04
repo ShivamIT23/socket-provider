@@ -163,6 +163,20 @@ export function registerAuthSocketHandlers(socket: CustomSocket, io: Server) {
 
     // Teacher setup
     if (socket.user!.isTeacher) {
+      // ── SINGLE TEACHER ENFORCEMENT (TAKEOVER MODEL) ───────────
+      // If the room already has an active teacher socket, disconnect it.
+      // The latest teacher connection always wins — this prevents lockouts
+      // when the teacher accidentally closes a tab and reopens the link.
+      if (room.teacherSocketId && room.teacherSocketId !== socket.id) {
+        const existingTeacherSocket = io.sockets.sockets.get(room.teacherSocketId);
+        if (existingTeacherSocket?.connected) {
+          log.info(`Teacher takeover: disconnecting old teacher socket ${room.teacherSocketId} in room ${roomId}, new teacher socket ${socket.id} taking over.`);
+          existingTeacherSocket.emit("error", { message: "You have been disconnected because the teacher joined from another session." });
+          existingTeacherSocket.disconnect(true);
+        }
+      }
+      // ──────────────────────────────────────────────────────────
+
       room.teacherSocketId = socket.id;
       room.ownerUserId = socket.user!.id;
       if (room.duration && !room.timerStarted) startRoomTimer(roomId, io);
